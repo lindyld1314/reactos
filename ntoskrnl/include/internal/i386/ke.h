@@ -557,7 +557,7 @@ extern ULONG KeI386CpuStep;
 extern ULONG KiFastSystemCallDisable;
 extern UCHAR KiDebugRegisterTrapOffsets[9];
 extern UCHAR KiDebugRegisterContextOffsets[9];
-extern DECLSPEC_NORETURN VOID __cdecl KiTrap02(VOID);
+extern VOID __cdecl KiTrap02(VOID);
 extern VOID __cdecl KiTrap08(VOID);
 extern VOID __cdecl KiTrap13(VOID);
 extern VOID __cdecl KiFastCallEntry(VOID);
@@ -792,10 +792,11 @@ KiCheckForApcDelivery(IN PKTRAP_FRAME TrapFrame)
 // Switches from boot loader to initial kernel stack
 //
 FORCEINLINE
+DECLSPEC_NORETURN
 VOID
 KiSwitchToBootStack(IN ULONG_PTR InitialStack)
 {
-    VOID NTAPI KiSystemStartupBootStack(VOID);
+    DECLSPEC_NORETURN VOID NTAPI KiSystemStartupBootStack(VOID);
 
     /* We have to switch to a new stack before continuing kernel initialization */
 #ifdef __GNUC__
@@ -823,6 +824,8 @@ KiSwitchToBootStack(IN ULONG_PTR InitialStack)
 #else
 #error Unknown Compiler
 #endif
+
+    UNREACHABLE;
 }
 
 //

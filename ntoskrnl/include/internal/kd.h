@@ -6,10 +6,6 @@
 // Kernel Debugger Port Definition
 //
 struct _KD_DISPATCH_TABLE;
-extern CPPORT GdbPortInfo;
-extern BOOLEAN KdBreakAfterSymbolLoad;
-extern BOOLEAN KdPitchDebugger;
-extern BOOLEAN KdIgnoreUmExceptions;
 
 BOOLEAN
 NTAPI
@@ -34,53 +30,10 @@ KdPortPutByteEx(
 /* SYMBOL ROUTINES **********************************************************/
 #ifdef __NTOSKRNL__
 
-#if defined(KDBG) || DBG
-
-#if defined(KDBG)
-typedef
-BOOLEAN
-(NTAPI *PKDBG_CLI_ROUTINE)(
-    IN PCHAR Command,
-    IN ULONG Argc,
-    IN PCH Argv[]);
-
-BOOLEAN
-NTAPI
-KdbRegisterCliCallback(
-    PVOID Callback,
-    BOOLEAN Deregister);
-#endif
-
-VOID
-KdbSymProcessSymbols(
-    IN PLDR_DATA_TABLE_ENTRY LdrEntry);
-
-
-BOOLEAN
-KdbSymPrintAddress(
-    IN PVOID Address,
-    IN PKTRAP_FRAME Context
-);
-
-NTSTATUS
-KdbSymGetAddressInformation(
-    IN PROSSYM_INFO  RosSymInfo,
-    IN ULONG_PTR  RelativeAddress,
-#ifdef __ROS_DWARF__
-    IN PROSSYM_LINEINFO RosSymLineInfo
-#else
-    OUT PULONG LineNumber  OPTIONAL,
-    OUT PCH FileName  OPTIONAL,
-    OUT PCH FunctionName  OPTIONAL
-#endif
-);
-#endif
-
 #ifdef KDBG
 # define KdbInit()                                  KdbpCliInit()
 # define KdbModuleLoaded(FILENAME)                  KdbpCliModuleLoaded(FILENAME)
 #else
-# define KdbEnterDebuggerException(ER, PM, C, TF, F)    kdHandleException
 # define KdbInit()                                      do { } while (0)
 # define KdbEnter()                                     do { } while (0)
 # define KdbModuleLoaded(X)                             do { } while (0)
@@ -93,8 +46,7 @@ typedef enum _KD_CONTINUE_TYPE
     kdContinue = 0,
     kdDoNotHandleException,
     kdHandleException
-}
-KD_CONTINUE_TYPE;
+} KD_CONTINUE_TYPE;
 
 typedef
 VOID
@@ -106,28 +58,8 @@ VOID
 typedef
 VOID
 (NTAPI*PKDP_PRINT_ROUTINE)(
-    LPSTR String,
+    PCHAR String,
     ULONG Length
-);
-
-typedef
-VOID
-(NTAPI*PKDP_PROMPT_ROUTINE)(PCH String);
-
-typedef
-KD_CONTINUE_TYPE
-(NTAPI*PKDP_EXCEPTION_ROUTINE)(
-    PEXCEPTION_RECORD ExceptionRecord,
-    PCONTEXT Context,
-    PKTRAP_FRAME TrapFrame
-);
-
-BOOLEAN
-NTAPI
-KdIsThisAKdTrap(
-    IN PEXCEPTION_RECORD ExceptionRecord,
-    IN PCONTEXT Context,
-    IN KPROCESSOR_MODE PreviousMode
 );
 
 /* INIT ROUTINES *************************************************************/
@@ -138,6 +70,12 @@ KdInitSystem(
     ULONG Reserved,
     PLOADER_PARAMETER_BLOCK LoaderBlock
 );
+
+VOID
+KdpScreenAcquire(VOID);
+
+VOID
+KdpScreenRelease(VOID);
 
 VOID
 NTAPI
@@ -155,23 +93,10 @@ KdpSerialInit(
 
 VOID
 NTAPI
-KdpInitDebugLog(
+KdpDebugLogInit(
     struct _KD_DISPATCH_TABLE *DispatchTable,
     ULONG BootPhase
 );
-
-VOID
-NTAPI
-KdpBochsInit(
-    struct _KD_DISPATCH_TABLE *DispatchTable,
-    ULONG BootPhase
-);
-
-VOID
-NTAPI
-KdpGdbStubInit(
-    struct _KD_DISPATCH_TABLE *DispatchTable,
-    ULONG BootPhase);
 
 VOID
 NTAPI
@@ -184,39 +109,7 @@ KdpKdbgInit(
 
 BOOLEAN
 NTAPI
-KdpCallGdb(
-    IN PKTRAP_FRAME TrapFrame,
-    IN PEXCEPTION_RECORD ExceptionRecord,
-    IN PCONTEXT Context
-);
-
-ULONG
-NTAPI
-KdpPrintString(
-    _In_reads_bytes_(Length) PCHAR UnsafeString,
-    _In_ ULONG Length,
-    _In_ KPROCESSOR_MODE PreviousMode);
-
-ULONG
-NTAPI
-KdpPrompt(
-    _In_reads_bytes_(InStringLength) PCHAR UnsafeInString,
-    _In_ USHORT InStringLength,
-    _Out_writes_bytes_(OutStringLength) PCHAR UnsafeOutString,
-    _In_ USHORT OutStringLength,
-    _In_ KPROCESSOR_MODE PreviousMode
-);
-
-BOOLEAN
-NTAPI
 KdpDetectConflicts(PCM_RESOURCE_LIST DriverList);
-
-VOID
-NTAPI
-KdpBochsDebugPrint(
-    IN PCH Message,
-    IN ULONG Length
-);
 
 BOOLEAN
 NTAPI
@@ -234,37 +127,21 @@ KdpSafeWriteMemory(
     IN ULONGLONG Value
 );
 
-VOID
-NTAPI
-KdpEnableSafeMem(VOID);
-
 
 /* KD GLOBALS  ***************************************************************/
 
-typedef
-BOOLEAN
-(NTAPI *PKDEBUG_ROUTINE)(
-    IN PKTRAP_FRAME TrapFrame,
-    IN PKEXCEPTION_FRAME ExceptionFrame,
-    IN PEXCEPTION_RECORD ExceptionRecord,
-    IN PCONTEXT Context,
-    IN KPROCESSOR_MODE PreviousMode,
-    IN BOOLEAN SecondChance
-);
-
-/* serial debug connection */
+/* Serial debug connection */
 #define DEFAULT_DEBUG_PORT      2 /* COM2 */
 #define DEFAULT_DEBUG_COM1_IRQ  4 /* COM1 IRQ */
 #define DEFAULT_DEBUG_COM2_IRQ  3 /* COM2 IRQ */
 #define DEFAULT_DEBUG_BAUD_RATE 115200 /* 115200 Baud */
 
 /* KD Native Modes */
-#define KdScreen 0
-#define KdSerial 1
-#define KdFile 2
-#define KdBochs 3
-#define KdKdbg 4
-#define KdMax 5
+#define KdScreen    0
+#define KdSerial    1
+#define KdFile      2
+#define KdKdbg      3
+#define KdMax       4
 
 /* KD Private Debug Modes */
 typedef struct _KDP_DEBUG_MODE
@@ -277,18 +154,12 @@ typedef struct _KDP_DEBUG_MODE
             UCHAR Screen :1;
             UCHAR Serial :1;
             UCHAR File   :1;
-            UCHAR Bochs  :1;
-
-            /* Currently Supported Wrappers */
-            UCHAR Pice   :1;
-            UCHAR Gdb    :1;
         };
 
         /* Generic Value */
         ULONG Value;
     };
-}
-KDP_DEBUG_MODE;
+} KDP_DEBUG_MODE;
 
 /* KD Internal Debug Services */
 typedef enum _KDP_DEBUG_SERVICE
@@ -305,8 +176,7 @@ typedef enum _KDP_DEBUG_SERVICE
     KdSpare3 = 0x24, /* j */
     EnterDebugger = 0x25,  /* k */
     ThatsWhatSheSaid = 69 /* FIGURE IT OUT */
-}
-KDP_DEBUG_SERVICE;
+} KDP_DEBUG_SERVICE;
 
 /* Dispatch Table for Wrapper Functions */
 typedef struct _KD_DISPATCH_TABLE
@@ -314,19 +184,10 @@ typedef struct _KD_DISPATCH_TABLE
     LIST_ENTRY KdProvidersList;
     PKDP_INIT_ROUTINE KdpInitRoutine;
     PKDP_PRINT_ROUTINE KdpPrintRoutine;
-    PKDP_PROMPT_ROUTINE KdpPromptRoutine;
-    PKDP_EXCEPTION_ROUTINE KdpExceptionRoutine;
-}
-KD_DISPATCH_TABLE, *PKD_DISPATCH_TABLE;
+} KD_DISPATCH_TABLE, *PKD_DISPATCH_TABLE;
 
 /* The current Debugging Mode */
 extern KDP_DEBUG_MODE KdpDebugMode;
-
-/* The current Port IRQ */
-extern ULONG KdpPortIrq;
-
-/* The current Port */
-extern ULONG KdpPort;
 
 /* Port Information for the Serial Native Mode */
 extern ULONG  SerialPortNumber;
@@ -335,24 +196,11 @@ extern CPPORT SerialPortInfo;
 /* Init Functions for Native Providers */
 extern PKDP_INIT_ROUTINE InitRoutines[KdMax];
 
-/* Wrapper Init Function */
-extern PKDP_INIT_ROUTINE WrapperInitRoutine;
-
 /* Dispatch Tables for Native Providers */
 extern KD_DISPATCH_TABLE DispatchTable[KdMax];
 
-/* Dispatch Table for the Wrapper */
-extern KD_DISPATCH_TABLE WrapperTable;
-
 /* The KD Native Provider List */
 extern LIST_ENTRY KdProviders;
-
-/* Whether to enter KDB as early as possible or not */
-extern BOOLEAN KdpEarlyBreak;
-
-extern PKDEBUG_ROUTINE KiDebugRoutine;
-extern KD_CONTEXT KdpContext;
-extern ULONG Kd_WIN2000_Mask;
 
 #endif
 

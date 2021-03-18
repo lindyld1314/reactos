@@ -129,7 +129,7 @@ VOID GetPathCase( TCHAR * Path, TCHAR * OutPath)
  * Check if Ctrl-Break was pressed during the last calls
  */
 
-BOOL CheckCtrlBreak (INT mode)
+BOOL CheckCtrlBreak(INT mode)
 {
     static BOOL bLeaveAll = FALSE; /* leave all batch files */
     TCHAR options[4]; /* Yes, No, All */
@@ -138,10 +138,11 @@ BOOL CheckCtrlBreak (INT mode)
     switch (mode)
     {
         case BREAK_OUTOFBATCH:
-            bLeaveAll = 0;
+            bLeaveAll = FALSE;
             return FALSE;
 
         case BREAK_BATCHFILE:
+        {
             if (bLeaveAll)
                 return TRUE;
 
@@ -150,21 +151,24 @@ BOOL CheckCtrlBreak (INT mode)
 
             LoadString(CMD_ModuleHandle, STRING_COPY_OPTION, options, ARRAYSIZE(options));
 
-            /* we need to be sure the string arrives on the screen! */
+            ConOutResPuts(STRING_CANCEL_BATCH_FILE);
             do
             {
-                ConOutResPuts(STRING_CANCEL_BATCH_FILE);
                 c = _totupper(cgetchar());
             } while (!(_tcschr(options, c) || c == _T('\3')) || !c);
 
             ConOutChar(_T('\n'));
 
             if (c == options[1])
-                return bCtrlBreak = FALSE; /* ignore */
+            {
+                bCtrlBreak = FALSE; /* ignore */
+                return FALSE;
+            }
 
             /* leave all batch files */
             bLeaveAll = ((c == options[2]) || (c == _T('\3')));
             break;
+        }
 
         case BREAK_INPUT:
             if (!bCtrlBreak)
@@ -173,7 +177,6 @@ BOOL CheckCtrlBreak (INT mode)
     }
 
     /* state processed */
-    bCtrlBreak = FALSE;
     return TRUE;
 }
 
@@ -184,18 +187,20 @@ BOOL add_entry (LPINT ac, LPTSTR **arg, LPCTSTR entry)
     LPTSTR *oldarg;
 
     q = cmd_alloc ((_tcslen(entry) + 1) * sizeof (TCHAR));
-    if (NULL == q)
+    if (!q)
     {
+        WARN("Cannot allocate memory for q!\n");
         return FALSE;
     }
 
     _tcscpy (q, entry);
     oldarg = *arg;
     *arg = cmd_realloc (oldarg, (*ac + 2) * sizeof (LPTSTR));
-    if (NULL == *arg)
+    if (!*arg)
     {
-        cmd_free (q);
+        WARN("Cannot reallocate memory for arg!\n");
         *arg = oldarg;
+        cmd_free (q);
         return FALSE;
     }
 
@@ -218,8 +223,9 @@ static BOOL expand (LPINT ac, LPTSTR **arg, LPCTSTR pattern)
     if (NULL != pathend)
     {
         dirpart = cmd_alloc((pathend - pattern + 2) * sizeof(TCHAR));
-        if (NULL == dirpart)
+        if (!dirpart)
         {
+            WARN("Cannot allocate memory for dirpart!\n");
             return FALSE;
         }
         memcpy(dirpart, pattern, pathend - pattern + 1);
@@ -237,8 +243,9 @@ static BOOL expand (LPINT ac, LPTSTR **arg, LPCTSTR pattern)
             if (NULL != dirpart)
             {
                 fullname = cmd_alloc((_tcslen(dirpart) + _tcslen(FindData.cFileName) + 1) * sizeof(TCHAR));
-                if (NULL == fullname)
+                if (!fullname)
                 {
+                    WARN("Cannot allocate memory for fullname!\n");
                     ok = FALSE;
                 }
                 else
@@ -282,7 +289,10 @@ LPTSTR *split (LPTSTR s, LPINT args, BOOL expand_wildcards, BOOL handle_plus)
 
     arg = cmd_alloc (sizeof (LPTSTR));
     if (!arg)
+    {
+        WARN("Cannot allocate memory for arg!\n");
         return NULL;
+    }
     *arg = NULL;
 
     ac = 0;
@@ -329,6 +339,7 @@ LPTSTR *split (LPTSTR s, LPINT args, BOOL expand_wildcards, BOOL handle_plus)
             q = cmd_alloc (((len = s - start) + 1) * sizeof (TCHAR));
             if (!q)
             {
+                WARN("Cannot allocate memory for q!\n");
                 return NULL;
             }
             memcpy (q, start, len * sizeof (TCHAR));
@@ -377,7 +388,10 @@ LPTSTR *splitspace (LPTSTR s, LPINT args)
 
     arg = cmd_alloc (sizeof (LPTSTR));
     if (!arg)
+    {
+        WARN("Cannot allocate memory for arg!\n");
         return NULL;
+    }
     *arg = NULL;
 
     ac = 0;
@@ -405,6 +419,7 @@ LPTSTR *splitspace (LPTSTR s, LPINT args)
             q = cmd_alloc (((len = s - start) + 1) * sizeof (TCHAR));
             if (!q)
             {
+                WARN("Cannot allocate memory for q!\n");
                 return NULL;
             }
             memcpy (q, start, len * sizeof (TCHAR));
@@ -462,77 +477,36 @@ StripQuotes(TCHAR *in)
 
 
 /*
- * Checks if a path is valid (accessible)
+ * Checks if a path is valid (is accessible)
  */
-BOOL IsValidPathName (LPCTSTR pszPath)
+BOOL IsValidPathName(IN LPCTSTR pszPath)
 {
-    TCHAR szOldPath[MAX_PATH];
     BOOL  bResult;
+    TCHAR szOldPath[MAX_PATH];
 
-    GetCurrentDirectory (MAX_PATH, szOldPath);
-    bResult = SetCurrentDirectory (pszPath);
+    GetCurrentDirectory(ARRAYSIZE(szOldPath), szOldPath);
+    bResult = SetCurrentDirectory(pszPath);
 
-    SetCurrentDirectory (szOldPath);
+    SetCurrentDirectory(szOldPath);
 
     return bResult;
 }
 
-
 /*
- * Checks if a file exists (accessible)
+ * Checks if a file exists (is accessible)
  */
-BOOL IsExistingFile (LPCTSTR pszPath)
+BOOL IsExistingFile(IN LPCTSTR pszPath)
 {
-    DWORD attr = GetFileAttributes (pszPath);
-    return (attr != 0xFFFFFFFF && (! (attr & FILE_ATTRIBUTE_DIRECTORY)) );
+    DWORD attr = GetFileAttributes(pszPath);
+    return ((attr != INVALID_FILE_ATTRIBUTES) && !(attr & FILE_ATTRIBUTE_DIRECTORY));
 }
 
-
-BOOL IsExistingDirectory (LPCTSTR pszPath)
+BOOL IsExistingDirectory(IN LPCTSTR pszPath)
 {
-    DWORD attr = GetFileAttributes (pszPath);
-    return (attr != 0xFFFFFFFF && (attr & FILE_ATTRIBUTE_DIRECTORY) );
+    DWORD attr = GetFileAttributes(pszPath);
+    return ((attr != INVALID_FILE_ATTRIBUTES) && (attr & FILE_ATTRIBUTE_DIRECTORY));
 }
 
-
-BOOL FileGetString (HANDLE hFile, LPTSTR lpBuffer, INT nBufferLength)
-{
-    LPSTR lpString;
-    DWORD  dwRead;
-    INT len = 0;
-#ifdef _UNICODE
-    lpString = cmd_alloc(nBufferLength);
-#else
-    lpString = lpBuffer;
-#endif
-
-    if (ReadFile(hFile, lpString, nBufferLength - 1, &dwRead, NULL))
-    {
-        /* break at new line*/
-        CHAR *end = memchr(lpString, '\n', dwRead);
-        len = dwRead;
-        if (end)
-        {
-            len = (INT)(end - lpString) + 1;
-            SetFilePointer(hFile, len - dwRead, NULL, FILE_CURRENT);
-        }
-    }
-
-    if (!len)
-    {
-#ifdef _UNICODE
-        cmd_free(lpString);
-#endif
-        return FALSE;
-    }
-
-    lpString[len++] = '\0';
-#ifdef _UNICODE
-    MultiByteToWideChar(OutputCodePage, 0, lpString, -1, lpBuffer, len);
-    cmd_free(lpString);
-#endif
-    return TRUE;
-}
 
 // See r874
 BOOL __stdcall PagePrompt(PCON_PAGER Pager, DWORD Done, DWORD Total)

@@ -18,6 +18,19 @@ class CPortPinWaveCyclic : public IPortPinWaveCyclic,
                            public IServiceSink
 {
 public:
+    inline
+    PVOID
+    operator new(
+        size_t Size,
+        POOL_TYPE PoolType,
+        ULONG Tag)
+    {
+        PVOID P = ExAllocatePoolWithTag(PoolType, Size, Tag);
+        if (P)
+            RtlZeroMemory(P, Size);
+        return P;
+    }
+
     STDMETHODIMP QueryInterface( REFIID InterfaceId, PVOID* Interface);
 
     STDMETHODIMP_(ULONG) AddRef()
@@ -1287,7 +1300,7 @@ CPortPinWaveCyclic::Init(
     m_Stream->SetState(KSSTATE_STOP);
     m_State = KSSTATE_STOP;
     m_CommonBufferOffset = 0;
-    m_CommonBufferSize = m_DmaChannel->AllocatedBufferSize();
+    m_CommonBufferSize = m_DmaChannel->BufferSize();
     m_CommonBuffer = m_DmaChannel->SystemAddress();
     m_Capture = Capture;
     // delay of 10 millisec

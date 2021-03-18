@@ -18,22 +18,14 @@
 /* Everyone loves 64K */
 #define _64K (64 * _1KB)
 
-/* Area mapped by a PDE */
-#define PDE_MAPPED_VA  (PTE_COUNT * PAGE_SIZE)
-
 /* Size of a page table */
-#define PT_SIZE  (PTE_COUNT * sizeof(MMPTE))
+#define PT_SIZE  (PTE_PER_PAGE * sizeof(MMPTE))
 
 /* Size of a page directory */
-#define PD_SIZE  (PDE_COUNT * sizeof(MMPDE))
-
-/* Stop using these! */
-#define PD_COUNT  PPE_PER_PAGE
-#define PDE_COUNT PDE_PER_PAGE
-#define PTE_COUNT PTE_PER_PAGE
+#define PD_SIZE  (PDE_PER_PAGE * sizeof(MMPDE))
 
 /* Size of all page directories for a process */
-#define SYSTEM_PD_SIZE (PD_COUNT * PD_SIZE)
+#define SYSTEM_PD_SIZE (PPE_PER_PAGE * PD_SIZE)
 #ifdef _M_IX86
 C_ASSERT(SYSTEM_PD_SIZE == PAGE_SIZE);
 #endif
@@ -83,7 +75,7 @@ C_ASSERT(SYSTEM_PD_SIZE == PAGE_SIZE);
 // while on certain architectures such as ARM, it is enabling the cache which
 // requires a flag.
 //
-#if defined(_M_IX86) || defined(_M_AMD64)
+#if defined(_M_IX86)
 //
 // Access Flags
 //
@@ -109,6 +101,34 @@ C_ASSERT(SYSTEM_PD_SIZE == PAGE_SIZE);
 #define PTE_ENABLE_CACHE        0
 #define PTE_DISABLE_CACHE       0x10
 #define PTE_WRITECOMBINED_CACHE 0x10
+#define PTE_PROTECT_MASK        0x612
+#elif defined(_M_AMD64)
+//
+// Access Flags
+//
+#define PTE_READONLY            0x8000000000000000ULL
+#define PTE_EXECUTE             0x0000000000000000ULL
+#define PTE_EXECUTE_READ        PTE_EXECUTE /* EXECUTE implies READ on x64 */
+#define PTE_READWRITE           0x8000000000000002ULL
+#define PTE_WRITECOPY           0x8000000000000200ULL
+#define PTE_EXECUTE_READWRITE   0x0000000000000002ULL
+#define PTE_EXECUTE_WRITECOPY   0x0000000000000200ULL
+#define PTE_PROTOTYPE           0x0000000000000400ULL
+
+//
+// State Flags
+//
+#define PTE_VALID               0x0000000000000001ULL
+#define PTE_ACCESSED            0x0000000000000020ULL
+#define PTE_DIRTY               0x0000000000000040ULL
+
+//
+// Cache flags
+//
+#define PTE_ENABLE_CACHE        0x0000000000000000ULL
+#define PTE_DISABLE_CACHE       0x0000000000000010ULL
+#define PTE_WRITECOMBINED_CACHE 0x0000000000000010ULL
+#define PTE_PROTECT_MASK        0x8000000000000612ULL
 #elif defined(_M_ARM)
 #define PTE_READONLY            0x200
 #define PTE_EXECUTE             0 // Not worrying about NX yet
@@ -118,15 +138,22 @@ C_ASSERT(SYSTEM_PD_SIZE == PAGE_SIZE);
 #define PTE_EXECUTE_READWRITE   0 // Not worrying about NX yet
 #define PTE_EXECUTE_WRITECOPY   0 // Not worrying about NX yet
 #define PTE_PROTOTYPE           0x400 // Using the Shared bit
+
 //
 // Cache flags
 //
 #define PTE_ENABLE_CACHE        0
 #define PTE_DISABLE_CACHE       0x10
 #define PTE_WRITECOMBINED_CACHE 0x10
+#define PTE_PROTECT_MASK        0x610
 #else
 #error Define these please!
 #endif
+
+//
+// Mask for image section page protection
+//
+#define IMAGE_SCN_PROTECTION_MASK (IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_EXECUTE)
 
 extern const ULONG_PTR MmProtectToPteMask[32];
 extern const ULONG MmProtectToValue[32];
@@ -609,10 +636,9 @@ extern PVOID MiSessionImageStart;
 extern PVOID MiSessionImageEnd;
 extern PMMPTE MiHighestUserPte;
 extern PMMPDE MiHighestUserPde;
-extern PFN_NUMBER MmSystemPageDirectory[PD_COUNT];
+extern PFN_NUMBER MmSystemPageDirectory[PPE_PER_PAGE];
 extern PMMPTE MmSharedUserDataPte;
 extern LIST_ENTRY MmProcessList;
-extern BOOLEAN MmZeroingPageThreadActive;
 extern KEVENT MmZeroingPageEvent;
 extern ULONG MmSystemPageColor;
 extern ULONG MmProcessColorSeed;
@@ -919,6 +945,10 @@ MI_WRITE_VALID_PTE(IN PMMPTE PointerPte,
     /* Write the valid PTE */
     ASSERT(PointerPte->u.Hard.Valid == 0);
     ASSERT(TempPte.u.Hard.Valid == 1);
+#if _M_AMD64
+    ASSERT(!MI_IS_PAGE_TABLE_ADDRESS(MiPteToAddress(PointerPte)) ||
+           (TempPte.u.Hard.NoExecute == 0));
+#endif
     *PointerPte = TempPte;
 }
 
@@ -973,6 +1003,9 @@ MI_WRITE_VALID_PDE(IN PMMPDE PointerPde,
 {
     /* Write the valid PDE */
     ASSERT(PointerPde->u.Hard.Valid == 0);
+#ifdef _M_AMD64
+    ASSERT(PointerPde->u.Hard.NoExecute == 0);
+#endif
     ASSERT(TempPde.u.Hard.Valid == 1);
     *PointerPde = TempPde;
 }
@@ -988,6 +1021,9 @@ MI_WRITE_INVALID_PDE(IN PMMPDE PointerPde,
     /* Write the invalid PDE */
     ASSERT(InvalidPde.u.Hard.Valid == 0);
     ASSERT(InvalidPde.u.Long != 0);
+#ifdef _M_AMD64
+    ASSERT(InvalidPde.u.Soft.Protection == MM_EXECUTE_READWRITE);
+#endif
     *PointerPde = InvalidPde;
 }
 
@@ -1035,9 +1071,8 @@ FORCEINLINE
 BOOLEAN
 MiIsRosSectionObject(IN PVOID Section)
 {
-    PROS_SECTION_OBJECT RosSection = Section;
-    if ((RosSection->Type == 'SC') && (RosSection->Size == 'TN')) return TRUE;
-    return FALSE;
+    PSECTION RosSection = Section;
+    return RosSection->u.Flags.filler;
 }
 
 #define MI_IS_ROS_PFN(x)     ((x)->u4.AweAllocation == TRUE)
@@ -1806,7 +1841,6 @@ InitializePool(           //
 // FIXFIX: THIS ONE TOO
 VOID
 NTAPI
-INIT_FUNCTION
 ExInitializePoolDescriptor(
     IN PPOOL_DESCRIPTOR PoolDescriptor,
     IN POOL_TYPE PoolType,
@@ -2244,6 +2278,11 @@ MiMakePdeExistAndMakeValid(
     IN PEPROCESS TargetProcess,
     IN KIRQL OldIrql
 );
+
+VOID
+NTAPI
+MiWriteProtectSystemImage(
+    _In_ PVOID ImageBase);
 
 //
 // MiRemoveZeroPage will use inline code to zero out the page manually if only

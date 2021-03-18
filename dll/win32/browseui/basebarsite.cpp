@@ -692,17 +692,10 @@ LRESULT CBaseBarSite::OnNotify(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bH
 
 LRESULT CBaseBarSite::OnCommand(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
-    HRESULT                             hResult;
-    CComPtr<IDockingWindow>             parentSite;
-
     if (HIWORD(wParam) == BN_CLICKED && LOWORD(wParam) == IDM_BASEBAR_CLOSE)
     {
-        hResult = fDeskBarSite->QueryInterface(IID_PPV_ARG(IDockingWindow, &parentSite));
-        if (!SUCCEEDED(hResult))
-        {
-            return E_FAIL;
-        }
-        parentSite->ShowDW(FALSE);
+        /* Tell the base bar to hide */
+        IUnknown_Exec(fDeskBarSite, IID_IDeskBarClient, 0, 0, NULL, NULL);
         bHandled = TRUE;
     }
     return 0;
@@ -736,12 +729,13 @@ LRESULT CBaseBarSite::OnCustomDraw(LPNMCUSTOMDRAW pnmcd)
                 rt = pnmcd->rc;
                 rt.right -= 24;
                 rt.left += 2;
+                rt.bottom -= 1;
                 if (FAILED_UNEXPECTEDLY(GetInternalBandInfo(index, &info, RBBIM_TEXT)))
                     return CDRF_SKIPDEFAULT;
                 newFont = GetTitleFont();
                 if (newFont)
                     oldFont = (HFONT)SelectObject(pnmcd->hdc, newFont);
-                DrawText(pnmcd->hdc, info.lpText, -1, &rt, DT_SINGLELINE | DT_LEFT);
+                DrawText(pnmcd->hdc, info.lpText, -1, &rt, DT_SINGLELINE | DT_LEFT | DT_VCENTER);
                 SelectObject(pnmcd->hdc, oldFont);
                 DeleteObject(newFont);
                 return CDRF_SKIPDEFAULT;

@@ -2,9 +2,33 @@
  * \file ecp.h
  *
  * \brief Elliptic curves over GF(p)
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,10 +44,18 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
+ *  **********
+ *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef MBEDTLS_ECP_H
 #define MBEDTLS_ECP_H
+
+#if !defined(MBEDTLS_CONFIG_FILE)
+#include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
 
 #include "bignum.h"
 
@@ -37,7 +69,8 @@
 #define MBEDTLS_ERR_ECP_ALLOC_FAILED                      -0x4D80  /**< Memory allocation failed. */
 #define MBEDTLS_ERR_ECP_RANDOM_FAILED                     -0x4D00  /**< Generation of random value, such as (ephemeral) key, failed. */
 #define MBEDTLS_ERR_ECP_INVALID_KEY                       -0x4C80  /**< Invalid private or public key. */
-#define MBEDTLS_ERR_ECP_SIG_LEN_MISMATCH                  -0x4C00  /**< Signature is valid but shorter than the user-supplied length. */
+#define MBEDTLS_ERR_ECP_SIG_LEN_MISMATCH                  -0x4C00  /**< The buffer contains a valid signature followed by more data. */
+#define MBEDTLS_ERR_ECP_HW_ACCEL_FAILED                   -0x4B80  /**< ECP hardware accelerator failed. */
 
 #if !defined(MBEDTLS_ECP_ALT)
 /*
@@ -512,10 +545,13 @@ int mbedtls_ecp_tls_write_group( const mbedtls_ecp_group *grp, size_t *olen,
  *                  operations for any valid m. It avoids any if-branch or
  *                  array index depending on the value of m.
  *
- * \note            If f_rng is not NULL, it is used to randomize intermediate
- *                  results in order to prevent potential timing attacks
- *                  targeting these results. It is recommended to always
- *                  provide a non-NULL f_rng (the overhead is negligible).
+ * \note            If \p f_rng is not NULL, it is used to randomize
+ *                  intermediate results to prevent potential timing attacks
+ *                  targeting these results. We recommend always providing
+ *                  a non-NULL \p f_rng. The overhead is negligible.
+ *                  Note: unless #MBEDTLS_ECP_NO_INTERNAL_RNG is defined, when
+ *                  \p f_rng is NULL, an internal RNG (seeded from the value
+ *                  of \p m) will be used instead.
  *
  * \param grp       ECP group
  * \param R         Destination point
@@ -594,6 +630,22 @@ int mbedtls_ecp_check_pubkey( const mbedtls_ecp_group *grp, const mbedtls_ecp_po
  *                  mbedtls_ecdh_context of mbedtls_ecdsa_context.
  */
 int mbedtls_ecp_check_privkey( const mbedtls_ecp_group *grp, const mbedtls_mpi *d );
+
+/**
+ * \brief           Generate a private key
+ *
+ * \param grp       ECP group
+ * \param d         Destination MPI (secret part)
+ * \param f_rng     RNG function
+ * \param p_rng     RNG parameter
+ *
+ * \return          0 if successful,
+ *                  or a MBEDTLS_ERR_ECP_XXX or MBEDTLS_MPI_XXX error code
+ */
+int mbedtls_ecp_gen_privkey( const mbedtls_ecp_group *grp,
+                     mbedtls_mpi *d,
+                     int (*f_rng)(void *, unsigned char *, size_t),
+                     void *p_rng );
 
 /**
  * \brief           Generate a keypair with configurable base point

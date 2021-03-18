@@ -8,7 +8,6 @@ list(APPEND SOURCE
     directory.c
     env.c
     error.c
-    exception.c
     file.c
     info.c
     large_int.c
@@ -22,20 +21,26 @@ list(APPEND SOURCE
     rtlbitmap.c
     rtlstr.c
     string.c
-    time.c
-    precomp.h)
+    time.c)
 
 if(ARCH STREQUAL "i386")
-    list(APPEND SOURCE generated.c)
+    list(APPEND SOURCE
+        exception.c
+        generated.c)
 endif()
 
-add_executable(ntdll_winetest ${SOURCE} testlist.c)
+list(APPEND PCH_SKIP_SOURCE
+    testlist.c)
+
+add_executable(ntdll_winetest
+    ${SOURCE}
+    ${PCH_SKIP_SOURCE})
 
 if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(ntdll_winetest "-Wno-format")
+    target_compile_options(ntdll_winetest PRIVATE "-Wno-format")
 endif()
 
 set_module_type(ntdll_winetest win32cui)
 add_importlibs(ntdll_winetest user32 ole32 advapi32 msvcrt kernel32 ntdll)
-add_pch(ntdll_winetest precomp.h SOURCE)
+add_pch(ntdll_winetest precomp.h "${PCH_SKIP_SOURCE}")
 add_rostests_file(TARGET ntdll_winetest)

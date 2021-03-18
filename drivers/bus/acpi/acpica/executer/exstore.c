@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2020, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -140,7 +140,7 @@ AcpiExStore (
             return_ACPI_STATUS (AE_OK);
         }
 
-        /*lint -fallthrough */
+        ACPI_FALLTHROUGH;
 
     default:
 
@@ -477,7 +477,7 @@ AcpiExStoreObjectToNode (
                 break;
             }
 
-        /* Fallthrough */
+            ACPI_FALLTHROUGH;
 
         case ACPI_TYPE_DEVICE:
         case ACPI_TYPE_EVENT:

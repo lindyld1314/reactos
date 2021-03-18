@@ -817,25 +817,25 @@ IoBuildAsynchronousFsdRequest(IN ULONG MajorFunction,
                 return NULL;
             }
 
-			/* Probe and Lock */
-			_SEH2_TRY
-			{
-				/* Do the probe */
-				MmProbeAndLockPages(Irp->MdlAddress,
-									KernelMode,
-									MajorFunction == IRP_MJ_READ ?
-									IoWriteAccess : IoReadAccess);
-			}
-			_SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-			{
-				/* Free the IRP and its MDL */
-				IoFreeMdl(Irp->MdlAddress);
-				IoFreeIrp(Irp);
+            /* Probe and Lock */
+            _SEH2_TRY
+            {
+                /* Do the probe */
+                MmProbeAndLockPages(Irp->MdlAddress,
+                                    KernelMode,
+                                    MajorFunction == IRP_MJ_READ ?
+                                    IoWriteAccess : IoReadAccess);
+            }
+            _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+            {
+                /* Free the IRP and its MDL */
+                IoFreeMdl(Irp->MdlAddress);
+                IoFreeIrp(Irp);
 
                 /* Fail */
-				_SEH2_YIELD(return NULL);
-			}
-			_SEH2_END;
+                _SEH2_YIELD(return NULL);
+            }
+            _SEH2_END;
         }
         else
         {
@@ -1629,7 +1629,7 @@ IoForwardIrpSynchronously(IN PDEVICE_OBJECT DeviceObject,
     NTSTATUS Status;
 
     /* Check if next stack location is available */
-    if (Irp->CurrentLocation < Irp->StackCount)
+    if (Irp->CurrentLocation > Irp->StackCount || Irp->CurrentLocation <= 1)
     {
         /* No more stack location */
         return FALSE;
@@ -1931,19 +1931,19 @@ IoMakeAssociatedIrp(IN PIRP Irp,
             __FUNCTION__,
             Irp);
 
-   /* Allocate the IRP */
-   AssocIrp = IoAllocateIrp(StackSize, FALSE);
-   if (!AssocIrp) return NULL;
+    /* Allocate the IRP */
+    AssocIrp = IoAllocateIrp(StackSize, FALSE);
+    if (!AssocIrp) return NULL;
 
-   /* Set the Flags */
-   AssocIrp->Flags |= IRP_ASSOCIATED_IRP;
+    /* Set the Flags */
+    AssocIrp->Flags |= IRP_ASSOCIATED_IRP;
 
-   /* Set the Thread */
-   AssocIrp->Tail.Overlay.Thread = Irp->Tail.Overlay.Thread;
+    /* Set the Thread */
+    AssocIrp->Tail.Overlay.Thread = Irp->Tail.Overlay.Thread;
 
-   /* Associate them */
-   AssocIrp->AssociatedIrp.MasterIrp = Irp;
-   return AssocIrp;
+    /* Associate them */
+    AssocIrp->AssociatedIrp.MasterIrp = Irp;
+    return AssocIrp;
 }
 
 /*

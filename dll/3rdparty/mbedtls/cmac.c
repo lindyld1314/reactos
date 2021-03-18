@@ -4,7 +4,30 @@
  * \brief NIST SP800-38B compliant CMAC implementation for AES and 3DES
  *
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,6 +42,8 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ *  **********
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
@@ -66,6 +91,8 @@
 #define mbedtls_printf     printf
 #endif /* MBEDTLS_SELF_TEST */
 #endif /* MBEDTLS_PLATFORM_C */
+
+#if !defined(MBEDTLS_CMAC_ALT) || defined(MBEDTLS_SELF_TEST)
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
@@ -166,7 +193,9 @@ exit:
 
     return( ret );
 }
+#endif /* !defined(MBEDTLS_CMAC_ALT) || defined(MBEDTLS_SELF_TEST) */
 
+#if !defined(MBEDTLS_CMAC_ALT)
 static void cmac_xor_block( unsigned char *output, const unsigned char *input1,
                             const unsigned char *input2,
                             const size_t block_size )
@@ -470,6 +499,8 @@ exit:
 }
 #endif /* MBEDTLS_AES_C */
 
+#endif /* !MBEDTLS_CMAC_ALT */
+
 #if defined(MBEDTLS_SELF_TEST)
 /*
  * CMAC test data for SP800-38B
@@ -767,7 +798,7 @@ static int cmac_test_subkeys( int verbose,
                               int block_size,
                               int num_tests )
 {
-    int i, ret;
+    int i, ret = 0;
     mbedtls_cipher_context_t ctx;
     const mbedtls_cipher_info_t *cipher_info;
     unsigned char K1[MBEDTLS_CIPHER_BLKSIZE_MAX];
@@ -828,6 +859,7 @@ static int cmac_test_subkeys( int verbose,
         mbedtls_cipher_free( &ctx );
     }
 
+    ret = 0;
     goto exit;
 
 cleanup:
@@ -849,7 +881,7 @@ static int cmac_test_wth_cipher( int verbose,
                                  int num_tests )
 {
     const mbedtls_cipher_info_t *cipher_info;
-    int i, ret;
+    int i, ret = 0;
     unsigned char output[MBEDTLS_CIPHER_BLKSIZE_MAX];
 
     cipher_info = mbedtls_cipher_info_from_type( cipher_type );
@@ -883,6 +915,7 @@ static int cmac_test_wth_cipher( int verbose,
         if( verbose != 0 )
             mbedtls_printf( "passed\n" );
     }
+    ret = 0;
 
 exit:
     return( ret );

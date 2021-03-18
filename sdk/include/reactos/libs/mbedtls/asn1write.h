@@ -2,9 +2,33 @@
  * \file asn1write.h
  *
  * \brief ASN.1 buffer writing functionality
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,10 +44,18 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
+ *  **********
+ *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef MBEDTLS_ASN1_WRITE_H
 #define MBEDTLS_ASN1_WRITE_H
+
+#if !defined(MBEDTLS_CONFIG_FILE)
+#include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
 
 #include "asn1.h"
 
@@ -184,24 +216,27 @@ int mbedtls_asn1_write_ia5_string( unsigned char **p, unsigned char *start,
                            const char *text, size_t text_len );
 
 /**
- * \brief           Write a bitstring tag (MBEDTLS_ASN1_BIT_STRING) and
- *                  value in ASN.1 format
- *                  Note: function works backwards in data buffer
+ * \brief           Write a bitstring tag (#MBEDTLS_ASN1_BIT_STRING) and
+ *                  value in ASN.1 format.
  *
- * \param p         reference to current position pointer
- * \param start     start of the buffer (for bounds-checking)
- * \param buf       the bitstring
- * \param bits      the total number of bits in the bitstring
+ * \note            This function works backwards in data buffer.
  *
- * \return          the length written or a negative error code
+ * \param p         The reference to the current position pointer.
+ * \param start     The start of the buffer, for bounds-checking.
+ * \param buf       The bitstring to write.
+ * \param bits      The total number of bits in the bitstring.
+ *
+ * \return          The number of bytes written to \p p on success.
+ * \return          A negative error code on failure.
  */
 int mbedtls_asn1_write_bitstring( unsigned char **p, unsigned char *start,
                           const unsigned char *buf, size_t bits );
 
 /**
- * \brief           Write an octet string tag (MBEDTLS_ASN1_OCTET_STRING) and
- *                  value in ASN.1 format
- *                  Note: function works backwards in data buffer
+ * \brief           Write an octet string tag (#MBEDTLS_ASN1_OCTET_STRING)
+ *                  and value in ASN.1 format.
+ *
+ * \note            This function works backwards in data buffer.
  *
  * \param p         reference to current position pointer
  * \param start     start of the buffer (for bounds-checking)

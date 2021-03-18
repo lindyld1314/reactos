@@ -1,10 +1,34 @@
 /**
  * \file bignum.h
  *
- * \brief  Multi-precision integer library
- *
+ * \brief Multi-precision integer library
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,6 +43,8 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ *  **********
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
@@ -72,7 +98,7 @@
  * Maximum size of MPIs allowed in bits and bytes for user-MPIs.
  * ( Default: 512 bytes => 4096 bits, Maximum tested: 2048 bytes => 16384 bits )
  *
- * Note: Calculations can results temporarily in larger MPIs. So the number
+ * Note: Calculations can temporarily result in larger MPIs. So the number
  * of limbs required (MBEDTLS_MPI_MAX_LIMBS) is higher.
  */
 #define MBEDTLS_MPI_MAX_SIZE                              1024     /**< Maximum number of bytes for usable MPIs. */
@@ -180,7 +206,7 @@ extern "C" {
  */
 typedef struct
 {
-    int s;              /*!<  integer sign      */
+    int s;              /*!<  Sign: -1 if the mpi is negative, 1 otherwise */
     size_t n;           /*!<  total # of limbs  */
     mbedtls_mpi_uint *p;          /*!<  pointer to limbs  */
 }
@@ -486,6 +512,24 @@ int mbedtls_mpi_cmp_abs( const mbedtls_mpi *X, const mbedtls_mpi *Y );
 int mbedtls_mpi_cmp_mpi( const mbedtls_mpi *X, const mbedtls_mpi *Y );
 
 /**
+ * \brief          Check if an MPI is less than the other in constant time.
+ *
+ * \param X        The left-hand MPI. This must point to an initialized MPI
+ *                 with the same allocated length as Y.
+ * \param Y        The right-hand MPI. This must point to an initialized MPI
+ *                 with the same allocated length as X.
+ * \param ret      The result of the comparison:
+ *                 \c 1 if \p X is less than \p Y.
+ *                 \c 0 if \p X is greater than or equal to \p Y.
+ *
+ * \return         0 on success.
+ * \return         MBEDTLS_ERR_MPI_BAD_INPUT_DATA if the allocated length of
+ *                 the two input MPIs is not the same.
+ */
+int mbedtls_mpi_lt_mpi_ct( const mbedtls_mpi *X, const mbedtls_mpi *Y,
+        unsigned *ret );
+
+/**
  * \brief          Compare signed values
  *
  * \param X        Left-hand MPI
@@ -685,6 +729,10 @@ int mbedtls_mpi_exp_mod( mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi
  *
  * \return         0 if successful,
  *                 MBEDTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed
+ *
+ * \note           The bytes obtained from the PRNG are interpreted
+ *                 as a big-endian representation of an MPI; this can
+ *                 be relevant in applications like deterministic ECDSA.
  */
 int mbedtls_mpi_fill_random( mbedtls_mpi *X, size_t size,
                      int (*f_rng)(void *, unsigned char *, size_t),

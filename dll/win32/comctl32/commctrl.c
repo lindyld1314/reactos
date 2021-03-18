@@ -231,6 +231,12 @@ static void UnregisterControls(BOOL bV6)
     else
     {
         BUTTON_Unregister();
+        COMBO_Unregister ();
+        COMBOLBOX_Unregister ();
+        EDIT_Unregister ();
+        LISTBOX_Unregister ();
+        STATIC_Unregister ();
+
         TOOLBARv6_Unregister ();
     }
 
@@ -1259,6 +1265,9 @@ BOOL WINAPI SetWindowSubclass (HWND hWnd, SUBCLASSPROC pfnSubclass,
    LPSUBCLASSPROCS proc;
 
    TRACE ("(%p, %p, %lx, %lx)\n", hWnd, pfnSubclass, uIDSubclass, dwRef);
+
+    if (!hWnd || !pfnSubclass)
+        return FALSE;
 
    /* Since the window procedure that we set here has two additional arguments,
     * we can't simply set it as the new window procedure of the window. So we

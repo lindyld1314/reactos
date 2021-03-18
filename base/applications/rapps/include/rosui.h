@@ -47,7 +47,7 @@ public:
 
     virtual INT OnCompareItems(T * p1, T * p2)
     {
-        INT t = (reinterpret_cast<INT>(p2) - reinterpret_cast<INT>(p1));
+        INT_PTR t = (reinterpret_cast<INT_PTR>(p2) - reinterpret_cast<INT_PTR>(p1));
         if (t > 0)
             return 1;
         if (t < 0)
@@ -96,9 +96,13 @@ public:
 
     BOOL RemoveAt(INT i)
     {
-        T* ptr = (T*) DPA_GetPtr(m_hDpa, i);
-        OnRemoveItem(ptr);
-        return DPA_DeletePtr(m_hDpa, i);
+        PVOID ptr = DPA_DeletePtr(m_hDpa, i);
+        if (ptr != NULL)
+        {
+            OnRemoveItem(reinterpret_cast<T*>(ptr));
+            return TRUE;
+        }
+        return FALSE;
     }
 
     BOOL Clear()
@@ -114,7 +118,7 @@ public:
 
     INT Search(T* item, INT iStart, UINT uFlags)
     {
-        return DPA_Search(m_hDpa, s_OnCompareItems, (LPARAM)this);
+        return DPA_Search(m_hDpa, item, 0, s_OnCompareItems, (LPARAM)this, 0);
     }
 };
 
@@ -493,9 +497,18 @@ public:
         }
     };
 
+    virtual VOID AppendTabOrderWindow(int Direction, ATL::CSimpleArray<HWND> & TabOrderList)
+    {
+        TabOrderList.Add(T::m_hWnd);
+        return;
+    }
+
     virtual ~CUiWindow()
     {
-        T::DestroyWindow();
+        if (T::IsWindow())
+        {
+            T::DestroyWindow();
+        }
     }
 
     VOID GetWindowTextW(ATL::CStringW& szText)

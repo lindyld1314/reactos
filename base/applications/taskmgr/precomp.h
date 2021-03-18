@@ -18,13 +18,13 @@
 #include <winreg.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 
 #include "column.h"
 #include "taskmgr.h"
 #include "perfdata.h"
 #include "procpage.h"
 #include "applpage.h"
-#include "dbgchnl.h"
 #include "endproc.h"
 #include "graph.h"
 #include "graphctl.h"

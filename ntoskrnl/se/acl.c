@@ -13,10 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, SepInitDACLs)
-#endif
-
 /* GLOBALS ********************************************************************/
 
 PACL SePublicDefaultDacl = NULL;
@@ -28,8 +24,8 @@ PACL SeUnrestrictedDacl = NULL;
 
 /* FUNCTIONS ******************************************************************/
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 SepInitDACLs(VOID)
 {
@@ -224,22 +220,26 @@ SepInitDACLs(VOID)
     return TRUE;
 }
 
-NTSTATUS NTAPI
-SepCreateImpersonationTokenDacl(PTOKEN Token,
-                                PTOKEN PrimaryToken,
-                                PACL *Dacl)
+NTSTATUS
+NTAPI
+SepCreateImpersonationTokenDacl(
+    _In_ PTOKEN Token,
+    _In_ PTOKEN PrimaryToken,
+    _Out_ PACL* Dacl)
 {
     ULONG AclLength;
-    PVOID TokenDacl;
+    PACL TokenDacl;
 
     PAGED_CODE();
 
+    *Dacl = NULL;
+
     AclLength = sizeof(ACL) +
-    (sizeof(ACE) + RtlLengthSid(SeAliasAdminsSid)) +
-    (sizeof(ACE) + RtlLengthSid(SeRestrictedCodeSid)) +
-    (sizeof(ACE) + RtlLengthSid(SeLocalSystemSid)) +
-    (sizeof(ACE) + RtlLengthSid(Token->UserAndGroups->Sid)) +
-    (sizeof(ACE) + RtlLengthSid(PrimaryToken->UserAndGroups->Sid));
+        (sizeof(ACE) + RtlLengthSid(SeAliasAdminsSid)) +
+        (sizeof(ACE) + RtlLengthSid(SeLocalSystemSid)) +
+        (sizeof(ACE) + RtlLengthSid(SeRestrictedCodeSid)) +
+        (sizeof(ACE) + RtlLengthSid(Token->UserAndGroups->Sid)) +
+        (sizeof(ACE) + RtlLengthSid(PrimaryToken->UserAndGroups->Sid));
 
     TokenDacl = ExAllocatePoolWithTag(PagedPool, AclLength, TAG_ACL);
     if (TokenDacl == NULL)
@@ -257,14 +257,13 @@ SepCreateImpersonationTokenDacl(PTOKEN Token,
     RtlAddAccessAllowedAce(TokenDacl, ACL_REVISION, GENERIC_ALL,
                            SeLocalSystemSid);
 
-    /* FIXME */
-#if 0
     if (Token->RestrictedSids != NULL || PrimaryToken->RestrictedSids != NULL)
     {
         RtlAddAccessAllowedAce(TokenDacl, ACL_REVISION, GENERIC_ALL,
                                SeRestrictedCodeSid);
     }
-#endif
+
+    *Dacl = TokenDacl;
 
     return STATUS_SUCCESS;
 }

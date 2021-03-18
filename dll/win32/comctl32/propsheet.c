@@ -1333,6 +1333,9 @@ static UINT GetTemplateSize(const DLGTEMPLATE* pTemplate)
   return ret;
 }
 
+#ifdef __REACTOS__
+static void PROPSHEET_UnChanged(HWND hwndDlg, HWND hwndCleanPage);
+#endif
 /******************************************************************************
  *            PROPSHEET_CreatePage
  *
@@ -1467,12 +1470,18 @@ static BOOL PROPSHEET_CreatePage(HWND hwndParent,
      (psInfo->ppshheader.dwFlags & PSH_WATERMARK) &&
      (ppshpage->dwFlags & PSP_HIDEHEADER))
   {
+#ifdef __REACTOS__
+    if (psInfo->ppshheader.u4.hbmWatermark)
+#endif
       SetWindowSubclass(hwndPage, PROPSHEET_WizardSubclassProc, 1,
                         (DWORD_PTR)ppshpage);
   }
   if (!(psInfo->ppshheader.dwFlags & INTRNL_ANY_WIZARD))
       EnableThemeDialogTexture (hwndPage, ETDT_ENABLETAB);
 
+#ifdef __REACTOS__
+  PROPSHEET_UnChanged(hwndParent, hwndPage);
+#endif
   return TRUE;
 }
 
@@ -3571,6 +3580,30 @@ PROPSHEET_DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         SetFocus(GetDlgItem(hwnd, IDOK));
       }
+#ifdef __REACTOS__
+      { /* 
+           try to fit it into the desktop  
+           user32 positions the dialog based on the IDD_PROPSHEET template, 
+           but we've since made it larger by adding controls
+        */
+          RECT rcWork;
+          RECT rcDlg;
+          int dx, dy;
+
+          if (GetWindowRect(hwnd, &rcDlg) && SystemParametersInfo(SPI_GETWORKAREA, 0, &rcWork, 0))
+          {
+              dx = rcDlg.right - rcWork.right;
+              dy = rcDlg.bottom - rcWork.bottom;
+
+              if (rcDlg.right > rcWork.right)
+                  rcDlg.left -= dx;
+              if (rcDlg.bottom > rcWork.bottom)
+                  rcDlg.top -= dy;
+
+              SetWindowPos(hwnd, HWND_TOPMOST, rcDlg.left, rcDlg.top, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOSIZE);
+          }
+      }
+#endif
 
       if (IS_INTRESOURCE(psInfo->ppshheader.pszCaption) &&
               psInfo->ppshheader.hInstance)

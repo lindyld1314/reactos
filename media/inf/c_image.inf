@@ -27,12 +27,15 @@ HKR,,Installer32, 0,"sti_ci.dll,ClassInstall"
 ReactOS = "ReactOS Team"
 ImageClassName = "Image"
 
+[Strings.0404]
+ImageClassName = "圖像"
+
 [Strings.0a]
 ReactOS = "Equipo de ReactOS"
 ImageClassName = "Imagen"
 
 [Strings.0415]
-ReactOS = "Ekipa ReactOS"
+ReactOS = "Zespół ReactOS"
 ImageClassName = "Obraz"
 
 [Strings.0418]

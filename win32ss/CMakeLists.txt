@@ -1,11 +1,6 @@
 
 set(USE_DIBLIB FALSE)
 
-if(NOT MSVC)
-    # HACK: this should be enabled globally!
-    add_compile_flags_language("-std=c++11" "CXX")
-endif()
-
 # Give WIN32 subsystem its own project.
 PROJECT(WIN32SS)
 
@@ -22,6 +17,11 @@ add_subdirectory(user/user32)
 add_subdirectory(user/winsrv)
 
 spec2def(win32k.sys win32k.spec ADD_IMPORTLIB)
+
+# embed RTC libs
+if (STACK_PROTECTOR)
+    target_sources(libwin32k PRIVATE $<TARGET_OBJECTS:gcc_ssp_win32k>)
+endif()
 
 include_directories(
     .
@@ -118,6 +118,7 @@ list(APPEND SOURCE
     user/ntuser/draw.c
     user/ntuser/event.c
     user/ntuser/focus.c
+    user/ntuser/ghost.c
     user/ntuser/guicheck.c
     user/ntuser/hook.c
     user/ntuser/hotkey.c
@@ -224,7 +225,7 @@ endif()
 
 add_asm_files(win32k_asm ${ASM_SOURCE})
 
-add_library(win32k SHARED
+add_library(win32k MODULE
     ${SOURCE}
     gdi/ntgdi/brush.cpp
     ${win32k_asm}

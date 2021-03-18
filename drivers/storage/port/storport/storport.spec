@@ -6,7 +6,7 @@
 @ stdcall StorPortCompleteRequest(ptr long long long long)
 @ stdcall StorPortConvertPhysicalAddressToUlong(long long)
 @ stdcall StorPortConvertUlongToPhysicalAddress(long)
-@ cdecl StorPortDebugPrint()
+@ varargs StorPortDebugPrint(long str)
 @ stdcall StorPortDeviceBusy(ptr long long long long)
 @ stdcall StorPortDeviceReady(ptr long long long)
 @ cdecl StorPortExtendedFunction()
@@ -24,10 +24,10 @@
 @ stdcall StorPortLogError(ptr ptr long long long long long)
 @ stdcall StorPortMoveMemory(ptr ptr long)
 @ cdecl StorPortNotification()
-@ stdcall -arch=i386 StorPortQuerySystemTime(ptr) NTOSKRNL.KeQuerySystemTime
-@ stdcall -arch=amd64 StorPortQuerySystemTime(ptr)
 @ stdcall StorPortPause(ptr long)
 @ stdcall StorPortPauseDevice(ptr long long long long)
+@ stdcall -arch=i386 StorPortQuerySystemTime(ptr) NTOSKRNL.KeQuerySystemTime
+@ stdcall -arch=amd64 StorPortQuerySystemTime(ptr)
 @ stdcall StorPortReadPortBufferUchar(ptr ptr ptr long)
 @ stdcall StorPortReadPortBufferUlong(ptr ptr ptr long)
 @ stdcall StorPortReadPortBufferUshort(ptr ptr ptr long)

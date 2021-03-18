@@ -19,6 +19,7 @@
     RTL_SIZEOF_THROUGH_FIELD(LOADER_PARAMETER_EXTENSION, AcpiTableSize)
 
 /* Temporary hack */
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 MmArmInitSystem(
@@ -91,9 +92,9 @@ BOOLEAN ExpRealTimeIsUniversal;
 
 /* FUNCTIONS ****************************************************************/
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 ExpCreateSystemRootLink(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     UNICODE_STRING LinkName;
@@ -203,9 +204,9 @@ ExpCreateSystemRootLink(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpInitNls(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     LARGE_INTEGER SectionSize;
@@ -379,9 +380,9 @@ ExpInitNls(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     ExpNlsTableBase = SectionBase;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
                       OUT PRTL_USER_PROCESS_PARAMETERS *ProcessParameters,
                       OUT PCHAR *ProcessEnvironment)
@@ -401,7 +402,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     ProcessInformation = &InitBuffer->ProcessInfo;
 
     /* Allocate memory for the process parameters */
-    Size = sizeof(*ProcessParams) + ((MAX_PATH * 6) * sizeof(WCHAR));
+    Size = sizeof(*ProcessParams) + ((MAX_WIN32_PATH * 6) * sizeof(WCHAR));
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
                                      (PVOID*)&ProcessParams,
                                      0,
@@ -456,7 +457,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     /* Make a buffer for the DOS path */
     p = (PWSTR)(ProcessParams + 1);
     ProcessParams->CurrentDirectory.DosPath.Buffer = p;
-    ProcessParams->CurrentDirectory.DosPath.MaximumLength = MAX_PATH *
+    ProcessParams->CurrentDirectory.DosPath.MaximumLength = MAX_WIN32_PATH *
                                                             sizeof(WCHAR);
 
     /* Copy the DOS path */
@@ -467,7 +468,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     p = (PWSTR)((PCHAR)ProcessParams->CurrentDirectory.DosPath.Buffer +
                 ProcessParams->CurrentDirectory.DosPath.MaximumLength);
     ProcessParams->DllPath.Buffer = p;
-    ProcessParams->DllPath.MaximumLength = MAX_PATH * sizeof(WCHAR);
+    ProcessParams->DllPath.MaximumLength = MAX_WIN32_PATH * sizeof(WCHAR);
 
     /* Copy the DLL path and append the system32 directory */
     RtlCopyUnicodeString(&ProcessParams->DllPath,
@@ -478,7 +479,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     p = (PWSTR)((PCHAR)ProcessParams->DllPath.Buffer +
                 ProcessParams->DllPath.MaximumLength);
     ProcessParams->ImagePathName.Buffer = p;
-    ProcessParams->ImagePathName.MaximumLength = MAX_PATH * sizeof(WCHAR);
+    ProcessParams->ImagePathName.MaximumLength = MAX_WIN32_PATH * sizeof(WCHAR);
 
     /* Make sure the buffer is a valid string which within the given length */
     if ((NtInitialUserProcessBufferType != REG_SZ) ||
@@ -516,7 +517,7 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     p = (PWSTR)((PCHAR)ProcessParams->ImagePathName.Buffer +
                 ProcessParams->ImagePathName.MaximumLength);
     ProcessParams->CommandLine.Buffer = p;
-    ProcessParams->CommandLine.MaximumLength = MAX_PATH * sizeof(WCHAR);
+    ProcessParams->CommandLine.MaximumLength = MAX_WIN32_PATH * sizeof(WCHAR);
 
     /* Add the image name to the command line */
     RtlAppendUnicodeToString(&ProcessParams->CommandLine,
@@ -596,9 +597,9 @@ ExpLoadInitialProcess(IN PINIT_BUFFER InitBuffer,
     *ProcessEnvironment = EnvironmentPtr;
 }
 
+CODE_SEG("INIT")
 ULONG
 NTAPI
-INIT_FUNCTION
 ExComputeTickCountMultiplier(IN ULONG ClockIncrement)
 {
     ULONG MsRemainder = 0, MsIncrement;
@@ -629,9 +630,9 @@ ExComputeTickCountMultiplier(IN ULONG ClockIncrement)
     return (MsIncrement << 24) | MsRemainder;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExpInitSystemPhase0(VOID)
 {
     /* Initialize EXRESOURCE Support */
@@ -652,9 +653,9 @@ ExpInitSystemPhase0(VOID)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExpInitSystemPhase1(VOID)
 {
     /* Initialize worker threads */
@@ -711,7 +712,11 @@ ExpInitSystemPhase1(VOID)
     }
 
     /* Initialize UUIDs */
-    ExpInitUuids();
+    if (ExpUuidInitialization() == FALSE)
+    {
+        DPRINT1("Executive: Uuid initialization failed\n");
+        return FALSE;
+    }
 
     /* Initialize keyed events */
     if (ExpInitializeKeyedEventImplementation() == FALSE)
@@ -729,9 +734,9 @@ ExpInitSystemPhase1(VOID)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExInitSystem(VOID)
 {
     /* Check the initialization phase */
@@ -755,9 +760,9 @@ ExInitSystem(VOID)
     }
 }
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
-INIT_FUNCTION
 ExpIsLoaderValid(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     PLOADER_PARAMETER_EXTENSION Extension;
@@ -781,9 +786,9 @@ ExpIsLoaderValid(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return TRUE;
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpLoadBootSymbols(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     ULONG i = 0;
@@ -862,9 +867,9 @@ ExpLoadBootSymbols(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     }
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExBurnMemory(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
              IN ULONG_PTR PagesToDestroy,
              IN TYPE_OF_MEMORY MemoryType)
@@ -908,9 +913,9 @@ ExBurnMemory(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
     }
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpInitializeExecutive(IN ULONG Cpu,
                        IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -963,7 +968,8 @@ ExpInitializeExecutive(IN ULONG Cpu,
     if (LoaderBlock->SetupLdrBlock)
     {
         /* Check if this is text-mode setup */
-        if (LoaderBlock->SetupLdrBlock->Flags & SETUPLDR_TEXT_MODE) ExpInTextModeSetup = TRUE;
+        if (LoaderBlock->SetupLdrBlock->Flags & SETUPLDR_TEXT_MODE)
+            ExpInTextModeSetup = TRUE;
 
         /* Check if this is network boot */
         if (LoaderBlock->SetupLdrBlock->Flags & SETUPLDR_REMOTE_BOOT)
@@ -994,7 +1000,7 @@ ExpInitializeExecutive(IN ULONG Cpu,
             {
                 /* Read the number of pages we'll use */
                 PerfMemUsed = atol(PerfMem + 1) * (1024 * 1024 / PAGE_SIZE);
-                if (PerfMem)
+                if (PerfMemUsed)
                 {
                     /* FIXME: TODO */
                     DPRINT1("BBT performance mode not yet supported."
@@ -1326,9 +1332,9 @@ VOID
 NTAPI
 MmFreeLoaderBlock(IN PLOADER_PARAMETER_BLOCK LoaderBlock);
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 Phase1InitializationDiscard(IN PVOID Context)
 {
     PLOADER_PARAMETER_BLOCK LoaderBlock = Context;
@@ -1580,8 +1586,9 @@ Phase1InitializationDiscard(IN PVOID Context)
                                WINDOWS_NT_INFO_STRING,
                                &MsgEntry);
 
-    /* Get total RAM size */
-    Size = MmNumberOfPhysicalPages * PAGE_SIZE / 1024 / 1024;
+    /* Get total RAM size, in MiB */
+    /* Round size up. Assumed to better match actual physical RAM size */
+    Size = ALIGN_UP_BY(MmNumberOfPhysicalPages * PAGE_SIZE, 1024 * 1024) / (1024 * 1024);
 
     /* Create the string */
     StringBuffer = InitBuffer->VersionBuffer;
@@ -1589,7 +1596,7 @@ Phase1InitializationDiscard(IN PVOID Context)
                                 sizeof(InitBuffer->VersionBuffer),
                                 NT_SUCCESS(MsgStatus) ?
                                 (PCHAR)MsgEntry->Text :
-                                "%u System Processor [%u MB Memory] %Z\r\n",
+                                "%u System Processor [%Iu MB Memory] %Z\r\n",
                                 KeNumberProcessors,
                                 Size,
                                 &TempString);
@@ -1786,10 +1793,8 @@ Phase1InitializationDiscard(IN PVOID Context)
     /* Update progress bar */
     InbvUpdateProgressBar(25);
 
-#ifdef _WINKD_
     /* No KD Time Slip is pending */
     KdpTimeSlipPending = 0;
-#endif
 
     /* Initialize in-place execution support */
     XIPInit(LoaderBlock);
@@ -1965,7 +1970,6 @@ Phase1InitializationDiscard(IN PVOID Context)
     InbvEnableDisplayString(TRUE);
 
     /* Launch initial process */
-    DPRINT("Free non-cache pages: %lx\n", MmAvailablePages + MiMemoryConsumers[MC_CACHE].PagesUsed);
     ProcessInfo = &InitBuffer->ProcessInfo;
     ExpLoadInitialProcess(InitBuffer, &ProcessParameters, &Environment);
 
@@ -2004,7 +2008,6 @@ Phase1InitializationDiscard(IN PVOID Context)
 
     /* Free the boot buffer */
     ExFreePoolWithTag(InitBuffer, TAG_INIT);
-    DPRINT("Free non-cache pages: %lx\n", MmAvailablePages + MiMemoryConsumers[MC_CACHE].PagesUsed);
 }
 
 VOID

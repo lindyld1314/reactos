@@ -78,10 +78,11 @@ NtQueryInformationProcess(IN HANDLE ProcessHandle,
     PVM_COUNTERS VmCounters = (PVM_COUNTERS)ProcessInformation;
     PIO_COUNTERS IoCounters = (PIO_COUNTERS)ProcessInformation;
     PQUOTA_LIMITS QuotaLimits = (PQUOTA_LIMITS)ProcessInformation;
-    PROCESS_DEVICEMAP_INFORMATION DeviceMap;
     PUNICODE_STRING ImageName;
     ULONG Cookie, ExecuteOptions = 0;
     ULONG_PTR Wow64 = 0;
+    PROCESS_VALUES ProcessValues;
+    ULONG Flags;
     PAGED_CODE();
 
     /* Check for user-mode caller */
@@ -251,15 +252,12 @@ NtQueryInformationProcess(IN HANDLE ProcessHandle,
                                                NULL);
             if (!NT_SUCCESS(Status)) break;
 
+            /* Query IO counters from the process */
+            KeQueryValuesProcess(&Process->Pcb, &ProcessValues);
+
             _SEH2_TRY
             {
-                /* FIXME: Call KeQueryValuesProcess */
-                IoCounters->ReadOperationCount = Process->ReadOperationCount.QuadPart;
-                IoCounters->ReadTransferCount = Process->ReadTransferCount.QuadPart;
-                IoCounters->WriteOperationCount = Process->WriteOperationCount.QuadPart;
-                IoCounters->WriteTransferCount = Process->WriteTransferCount.QuadPart;
-                IoCounters->OtherOperationCount = Process->OtherOperationCount.QuadPart;
-                IoCounters->OtherTransferCount = Process->OtherTransferCount.QuadPart;
+                RtlCopyMemory(IoCounters, &ProcessValues.IoInfo, sizeof(IO_COUNTERS));
             }
             _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
             {
@@ -462,12 +460,12 @@ NtQueryInformationProcess(IN HANDLE ProcessHandle,
                 VmCounters->PageFaultCount = Process->Vm.PageFaultCount;
                 VmCounters->PeakWorkingSetSize = Process->Vm.PeakWorkingSetSize;
                 VmCounters->WorkingSetSize = Process->Vm.WorkingSetSize;
-                VmCounters->QuotaPeakPagedPoolUsage = Process->QuotaPeak[0];
-                VmCounters->QuotaPagedPoolUsage = Process->QuotaUsage[0];
-                VmCounters->QuotaPeakNonPagedPoolUsage = Process->QuotaPeak[1];
-                VmCounters->QuotaNonPagedPoolUsage = Process->QuotaUsage[1];
-                VmCounters->PagefileUsage = Process->QuotaUsage[2] << PAGE_SHIFT;
-                VmCounters->PeakPagefileUsage = Process->QuotaPeak[2] << PAGE_SHIFT;
+                VmCounters->QuotaPeakPagedPoolUsage = Process->QuotaPeak[PsPagedPool];
+                VmCounters->QuotaPagedPoolUsage = Process->QuotaUsage[PsPagedPool];
+                VmCounters->QuotaPeakNonPagedPoolUsage = Process->QuotaPeak[PsNonPagedPool];
+                VmCounters->QuotaNonPagedPoolUsage = Process->QuotaUsage[PsNonPagedPool];
+                VmCounters->PagefileUsage = Process->QuotaUsage[PsPageFile] << PAGE_SHIFT;
+                VmCounters->PeakPagefileUsage = Process->QuotaPeak[PsPageFile] << PAGE_SHIFT;
                 //VmCounters->PrivateUsage = Process->CommitCharge << PAGE_SHIFT;
                 //
 
@@ -566,22 +564,50 @@ NtQueryInformationProcess(IN HANDLE ProcessHandle,
         /* DOS Device Map */
         case ProcessDeviceMap:
 
-            if (ProcessInformationLength != sizeof(PROCESS_DEVICEMAP_INFORMATION))
+            if (ProcessInformationLength == sizeof(PROCESS_DEVICEMAP_INFORMATION_EX))
             {
-                if (ProcessInformationLength == sizeof(PROCESS_DEVICEMAP_INFORMATION_EX))
+                /* Protect read in SEH */
+                _SEH2_TRY
                 {
-                    DPRINT1("PROCESS_DEVICEMAP_INFORMATION_EX not supported!\n");
-                    Status = STATUS_NOT_IMPLEMENTED;
+                    PPROCESS_DEVICEMAP_INFORMATION_EX DeviceMapEx = ProcessInformation;
+
+                    Flags = DeviceMapEx->Flags;
                 }
-                else
+                _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+                {
+                    /* Get the exception code */
+                    Status = _SEH2_GetExceptionCode();
+                }
+                _SEH2_END;
+
+                if (!NT_SUCCESS(Status))
+                {
+                    break;
+                }
+
+                /* Only one flag is supported and it needs LUID mappings */
+                if ((Flags & ~PROCESS_LUID_DOSDEVICES_ONLY) != 0 ||
+                    !ObIsLUIDDeviceMapsEnabled())
+                {
+                    Status = STATUS_INVALID_PARAMETER;
+                    break;
+                }
+            }
+            else
+            {
+                /* This has to be the size of the Query union field for x64 compatibility! */
+                if (ProcessInformationLength != RTL_FIELD_SIZE(PROCESS_DEVICEMAP_INFORMATION, Query))
                 {
                     Status = STATUS_INFO_LENGTH_MISMATCH;
+                    break;
                 }
-                break;
+
+                /* No flags for standard call */
+                Flags = 0;
             }
 
             /* Set the return length */
-            Length = sizeof(PROCESS_DEVICEMAP_INFORMATION);
+            Length = ProcessInformationLength;
 
             /* Reference the process */
             Status = ObReferenceObjectByHandle(ProcessHandle,
@@ -593,19 +619,9 @@ NtQueryInformationProcess(IN HANDLE ProcessHandle,
             if (!NT_SUCCESS(Status)) break;
 
             /* Query the device map information */
-            ObQueryDeviceMapInformation(Process, &DeviceMap);
-
-            /* Enter SEH for writing back data */
-            _SEH2_TRY
-            {
-                *(PPROCESS_DEVICEMAP_INFORMATION)ProcessInformation = DeviceMap;
-            }
-            _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-            {
-                /* Get the exception code */
-                Status = _SEH2_GetExceptionCode();
-            }
-            _SEH2_END;
+            Status = ObQueryDeviceMapInformation(Process,
+                                                 ProcessInformation,
+                                                 Flags);
 
             /* Dereference the process */
             ObDereferenceObject(Process);
@@ -913,8 +929,8 @@ NtQueryInformationProcess(IN HANDLE ProcessHandle,
             /* Protect write in SEH */
             _SEH2_TRY
             {
-                /* Return FALSE -- we don't support this */
-                *(PULONG)ProcessInformation = FALSE;
+                /* Query Ob */
+                *(PULONG)ProcessInformation = ObIsLUIDDeviceMapsEnabled();
             }
             _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
             {
@@ -1099,6 +1115,7 @@ NtSetInformationProcess(IN HANDLE ProcessHandle,
     NTSTATUS Status;
     HANDLE PortHandle = NULL;
     HANDLE TokenHandle = NULL;
+    HANDLE DirectoryHandle = NULL;
     PROCESS_SESSION_INFORMATION SessionInfo = {0};
     PROCESS_PRIORITY_CLASS PriorityClass = {0};
     PROCESS_FOREGROUND_BACKGROUND Foreground = {0};
@@ -1880,6 +1897,15 @@ NtSetInformationProcess(IN HANDLE ProcessHandle,
             /* Only supported on x86 */
 #if defined (_X86_)
             Ke386SetIOPL();
+#elif defined(_M_AMD64)
+            /* On x64 this function isn't implemented.
+               On Windows 2003 it returns success.
+               On Vista+ it returns STATUS_NOT_IMPLEMENTED. */
+            if ((ExGetPreviousMode() != KernelMode) &&
+                (RtlRosGetAppcompatVersion() > _WIN32_WINNT_WS03))
+            {
+                Status = STATUS_NOT_IMPLEMENTED;
+            }
 #else
             Status = STATUS_NOT_IMPLEMENTED;
 #endif
@@ -1918,6 +1944,34 @@ NtSetInformationProcess(IN HANDLE ProcessHandle,
             Status = MmSetExecuteOptions(NoExecute);
             break;
 
+        case ProcessDeviceMap:
+
+            /* Check buffer length */
+            if (ProcessInformationLength != sizeof(HANDLE))
+            {
+                Status = STATUS_INFO_LENGTH_MISMATCH;
+                break;
+            }
+
+            /* Use SEH for capture */
+            _SEH2_TRY
+            {
+                /* Capture the handle */
+                DirectoryHandle = *(PHANDLE)ProcessInformation;
+            }
+            _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+            {
+                /* Get the exception code */
+                Status = _SEH2_GetExceptionCode();
+                _SEH2_YIELD(break);
+            }
+            _SEH2_END;
+
+            /* Call Ob to set the device map */
+            Status = ObSetDeviceMap(Process, DirectoryHandle);
+            break;
+
+
         /* We currently don't implement any of these */
         case ProcessLdtInformation:
         case ProcessLdtSize:
@@ -1937,11 +1991,6 @@ NtSetInformationProcess(IN HANDLE ProcessHandle,
 
         case ProcessWorkingSetWatch:
             DPRINT1("WS watch not implemented\n");
-            Status = STATUS_NOT_IMPLEMENTED;
-            break;
-
-        case ProcessDeviceMap:
-            DPRINT1("Device map not implemented\n");
             Status = STATUS_NOT_IMPLEMENTED;
             break;
 

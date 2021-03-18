@@ -247,7 +247,7 @@ RtlConvertUlongToLuid(
 //
 // This macro does nothing in user mode
 //
-#define RTL_PAGED_CODE NOP_FUNCTION
+#define RTL_PAGED_CODE()
 
 #endif
 
@@ -992,27 +992,26 @@ RtlLockHeap(
     _In_ HANDLE Heap
 );
 
-_Must_inspect_result_
 NTSYSAPI
-NTSTATUS
+ULONG
 NTAPI
-RtlMultipleAllocateHeap (
+RtlMultipleAllocateHeap(
     _In_ HANDLE HeapHandle,
     _In_ ULONG Flags,
     _In_ SIZE_T Size,
     _In_ ULONG Count,
     _Out_cap_(Count) _Deref_post_bytecap_(Size) PVOID * Array
-    );
+);
 
 NTSYSAPI
-NTSTATUS
+ULONG
 NTAPI
-RtlMultipleFreeHeap (
+RtlMultipleFreeHeap(
     _In_ HANDLE HeapHandle,
     _In_ ULONG Flags,
     _In_ ULONG Count,
     _In_count_(Count) /* _Deref_ _Post_invalid_ */ PVOID * Array
-    );
+);
 
 NTSYSAPI
 NTSTATUS
@@ -2106,16 +2105,55 @@ RtlDuplicateUnicodeString(
     _Out_ PUNICODE_STRING DestinationString
 );
 
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlFindCharInUnicodeString(
+    _In_ ULONG Flags,
+    _In_ PCUNICODE_STRING SearchString,
+    _In_ PCUNICODE_STRING MatchString,
+    _Out_ PUSHORT Position
+);
+
 //
 // Memory Functions
 //
+#if defined(_M_AMD64)
+
+FORCEINLINE
+VOID
+RtlFillMemoryUlong(
+    _Out_writes_bytes_all_(Length) PVOID Destination,
+    _In_ SIZE_T Length,
+    _In_ ULONG Pattern)
+{
+    PULONG Address = (PULONG)Destination;
+    if ((Length /= 4) != 0) {
+        if (((ULONG64)Address & 4) != 0) {
+            *Address = Pattern;
+            if ((Length -= 1) == 0) {
+                return;
+            }
+            Address += 1;
+        }
+        __stosq((PULONG64)(Address), Pattern | ((ULONG64)Pattern << 32), Length / 2);
+        if ((Length & 1) != 0) Address[Length - 1] = Pattern;
+    }
+    return;
+}
+
+#define RtlFillMemoryUlonglong(Destination, Length, Pattern)                \
+    __stosq((PULONG64)(Destination), Pattern, (Length) / 8)
+
+#else
+
 NTSYSAPI
 VOID
 NTAPI
 RtlFillMemoryUlong(
-    _In_ PVOID Destination,
+    _Out_writes_bytes_all_(Length) PVOID Destination,
     _In_ SIZE_T Length,
-    _In_ ULONG Fill
+    _In_ ULONG Pattern
 );
 
 NTSYSAPI
@@ -2126,6 +2164,8 @@ RtlFillMemoryUlonglong(
     _In_ SIZE_T Length,
     _In_ ULONGLONG Pattern
 );
+
+#endif
 
 NTSYSAPI
 NTSTATUS
@@ -2165,16 +2205,6 @@ RtlEqualUnicodeString(
     BOOLEAN CaseInsensitive
 );
 
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlFindCharInUnicodeString(
-    _In_ ULONG Flags,
-    _In_ PCUNICODE_STRING SearchString,
-    _In_ PCUNICODE_STRING MatchString,
-    _Out_ PUSHORT Position
-);
-
 _IRQL_requires_max_(PASSIVE_LEVEL)
 NTSYSAPI
 VOID
@@ -2199,6 +2229,22 @@ RtlHashUnicodeString(
     _In_ BOOLEAN CaseInSensitive,
     _In_ ULONG HashAlgorithm,
     _Out_ PULONG HashValue
+);
+
+_IRQL_requires_max_(DISPATCH_LEVEL)
+_At_(DestinationString->Buffer, _Post_equal_to_(SourceString))
+_When_(SourceString != NULL,
+_At_(DestinationString->Length, _Post_equal_to_(_String_length_(SourceString)))
+_At_(DestinationString->MaximumLength, _Post_equal_to_(DestinationString->Length + sizeof(CHAR))))
+_When_(SourceString == NULL,
+_At_(DestinationString->Length, _Post_equal_to_(0))
+_At_(DestinationString->MaximumLength, _Post_equal_to_(0)))
+NTSYSAPI
+VOID
+NTAPI
+RtlInitString(
+    _Out_ PSTRING DestinationString,
+    _In_opt_z_ __drv_aliasesMem PCSTR SourceString
 );
 
 _IRQL_requires_max_(DISPATCH_LEVEL)
@@ -2387,6 +2433,22 @@ RtlFreeBuffer(
     Buffer->Buffer = Buffer->StaticBuffer;
     Buffer->Size = Buffer->StaticSize;
 }
+
+NTSYSAPI
+VOID
+NTAPI
+RtlRunEncodeUnicodeString(
+    _Inout_ PUCHAR Hash,
+    _Inout_ PUNICODE_STRING String
+);
+
+NTSYSAPI
+VOID
+NTAPI
+RtlRunDecodeUnicodeString(
+    _In_ UCHAR Hash,
+    _Inout_ PUNICODE_STRING String
+);
 
 #endif /* NTOS_MODE_USER */
 
@@ -2777,8 +2839,8 @@ NTSTATUS
 NTAPI
 RtlComputePrivatizedDllName_U(
     _In_ PUNICODE_STRING DllName,
-    _Out_ PUNICODE_STRING RealName,
-    _Out_ PUNICODE_STRING LocalName
+    _Inout_ PUNICODE_STRING RealName,
+    _Inout_ PUNICODE_STRING LocalName
 );
 
 NTSYSAPI
@@ -3363,7 +3425,7 @@ RtlFindSetBitsAndClear(
     _In_ ULONG HintIndex
 );
 
-#ifdef _REACTOS_ // ReactOS improvement
+#ifdef __REACTOS__ // ReactOS improvement
 _At_(BitMapHeader->SizeOfBitMap, _Post_equal_to_(SizeOfBitMap))
 _At_(BitMapHeader->Buffer, _Post_equal_to_(BitMapBuffer))
 #endif
@@ -3512,13 +3574,39 @@ NTSYSAPI
 VOID
 NTAPI
 RtlInitializeRangeList(
-    _Inout_ PRTL_RANGE_LIST RangeList
+    _Out_ PRTL_RANGE_LIST RangeList
 );
 
 NTSYSAPI
 VOID
 NTAPI
 RtlFreeRangeList(
+    _In_ PRTL_RANGE_LIST RangeList
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlCopyRangeList(
+    _Out_ PRTL_RANGE_LIST CopyRangeList,
+    _In_ PRTL_RANGE_LIST RangeList
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlMergeRangeLists(
+    _Out_ PRTL_RANGE_LIST MergedRangeList,
+    _In_ PRTL_RANGE_LIST RangeList1,
+    _In_ PRTL_RANGE_LIST RangeList2,
+    _In_ ULONG Flags
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlInvertRangeList(
+    _Out_ PRTL_RANGE_LIST InvertedRangeList,
     _In_ PRTL_RANGE_LIST RangeList
 );
 
@@ -3533,6 +3621,72 @@ RtlAddRange(
     _In_ ULONG Flags,
     _In_opt_ PVOID UserData,
     _In_opt_ PVOID Owner
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlDeleteRange(
+    _Inout_ PRTL_RANGE_LIST RangeList,
+    _In_ ULONGLONG Start,
+    _In_ ULONGLONG End,
+    _In_ PVOID Owner
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlDeleteOwnersRanges(
+    _Inout_ PRTL_RANGE_LIST RangeList,
+    _In_ _Maybenull_ PVOID Owner
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlFindRange(
+    _In_ PRTL_RANGE_LIST RangeList,
+    _In_ ULONGLONG Minimum,
+    _In_ ULONGLONG Maximum,
+    _In_ ULONG Length,
+    _In_ ULONG Alignment,
+    _In_ ULONG Flags,
+    _In_ UCHAR AttributeAvailableMask,
+    _In_opt_ PVOID Context,
+    _In_opt_ PRTL_CONFLICT_RANGE_CALLBACK Callback,
+    _Out_ PULONGLONG Start
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlIsRangeAvailable(
+    _In_ PRTL_RANGE_LIST RangeList,
+    _In_ ULONGLONG Start,
+    _In_ ULONGLONG End,
+    _In_ ULONG Flags,
+    _In_ UCHAR AttributeAvailableMask,
+    _In_opt_ PVOID Context,
+    _In_opt_ PRTL_CONFLICT_RANGE_CALLBACK Callback,
+    _Out_ PBOOLEAN Available
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlGetFirstRange(
+    _In_ PRTL_RANGE_LIST RangeList,
+    _Out_ PRTL_RANGE_LIST_ITERATOR Iterator,
+    _Outptr_ PRTL_RANGE *Range
+);
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlGetNextRange(
+    _Inout_ PRTL_RANGE_LIST_ITERATOR Iterator,
+    _Outptr_ PRTL_RANGE *Range,
+    _In_ BOOLEAN MoveForwards
 );
 
 //
@@ -4461,10 +4615,11 @@ RtlGetVersion(
         PRTL_OSVERSIONINFOW lpVersionInformation
 );
 
+_IRQL_requires_max_(PASSIVE_LEVEL)
 NTSYSAPI
 BOOLEAN
 NTAPI
-RtlGetNtProductType(OUT PNT_PRODUCT_TYPE ProductType);
+RtlGetNtProductType(_Out_ PNT_PRODUCT_TYPE ProductType);
 
 //
 // Secure Memory Functions
@@ -4722,6 +4877,59 @@ RtlCloneMemoryStream(
     _In_ struct IStream *This,
     _Outptr_ struct IStream **ResultStream
 );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlGetNativeSystemInformation(
+    _In_ SYSTEM_INFORMATION_CLASS SystemInformationClass,
+    _Out_writes_bytes_to_opt_(SystemInformationLength, *ReturnLength) PVOID SystemInformation,
+    _In_ ULONG SystemInformationLength,
+    _Out_opt_ PULONG ReturnLength
+);
+
+#if (_WIN32_WINNT >= _WIN32_WINNT_VISTA) || (defined(__REACTOS__) && defined(_NTDLLBUILD_))
+/* Put NTSYSAPI back when this will be really exported. Only statically linked for now */
+// NTSYSAPI
+VOID
+NTAPI
+RtlInitializeSRWLock(OUT PRTL_SRWLOCK SRWLock);
+
+// NTSYSAPI
+VOID
+NTAPI
+RtlAcquireSRWLockShared(IN OUT PRTL_SRWLOCK SRWLock);
+
+// NTSYSAPI
+VOID
+NTAPI
+RtlAcquireSRWLockExclusive(IN OUT PRTL_SRWLOCK SRWLock);
+
+// NTSYSAPI
+VOID
+NTAPI
+RtlReleaseSRWLockShared(IN OUT PRTL_SRWLOCK SRWLock);
+
+// NTSYSAPI
+VOID
+NTAPI
+RtlReleaseSRWLockExclusive(IN OUT PRTL_SRWLOCK SRWLock);
+
+#endif /* Win vista or Reactos Ntdll build */
+
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN7) || (defined(__REACTOS__) && defined(_NTDLLBUILD_))
+
+// NTSYSAPI
+BOOLEAN
+NTAPI
+RtlTryAcquireSRWLockShared(PRTL_SRWLOCK SRWLock);
+
+// NTSYSAPI
+BOOLEAN
+NTAPI
+RtlTryAcquireSRWLockExclusive(PRTL_SRWLOCK SRWLock);
+
+#endif /* Win7 or Reactos Ntdll build */
 
 #endif // NTOS_MODE_USER
 

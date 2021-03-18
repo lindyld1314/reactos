@@ -17,7 +17,7 @@ list(APPEND SOURCE
     fiber.c
     file.c
     format_msg.c
-    #generated.c
+    generated.c
     heap.c
     loader.c
     locale.c
@@ -35,19 +35,26 @@ list(APPEND SOURCE
     toolhelp.c
     version.c
     virtual.c
-    volume.c
-    precomp.h)
+    volume.c)
+
+list(APPEND PCH_SKIP_SOURCE
+    testlist.c)
 
 add_executable(kernel32_winetest
     ${SOURCE}
-    testlist.c
+    ${PCH_SKIP_SOURCE}
     resource.rc)
 
+if(MSVC)
+    # Disable warning C4477 (printf format warnings)
+    remove_target_compile_option(kernel32_winetest "/we4477")
+endif()
+
 if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(kernel32_winetest "-Wno-format")
+    target_compile_options(kernel32_winetest PRIVATE "-Wno-format")
 endif()
 
 set_module_type(kernel32_winetest win32cui)
 add_importlibs(kernel32_winetest user32 advapi32 msvcrt kernel32 ntdll)
-add_pch(kernel32_winetest precomp.h SOURCE)
+add_pch(kernel32_winetest precomp.h "${PCH_SKIP_SOURCE}")
 add_rostests_file(TARGET kernel32_winetest)

@@ -55,6 +55,11 @@ list(APPEND SOURCE
 
 add_library(freetype ${SOURCE})
 
-if(USE_CLANG_CL)
-    add_target_compile_flags(freetype "-Wno-tautological-constant-compare")
+if (MSVC)
+    # error C4312: 'type cast': conversion from 'unsigned long' to 'void *' of greater size
+    remove_target_compile_option(freetype "/we4312")
+elseif(GCC)
+    target_compile_options(freetype PRIVATE -fno-builtin-malloc)
+elseif(CLANG)
+    target_compile_options(freetype PRIVATE -Wno-tautological-constant-compare)
 endif()

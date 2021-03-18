@@ -1,38 +1,11 @@
 #pragma once
 
-typedef struct _INBV_PROGRESS_STATE
-{
-    ULONG Floor;
-    ULONG Ceiling;
-    ULONG Bias;
-} INBV_PROGRESS_STATE;
+// Native definitions from BOOTVID (Boot Video Driver).
+#include "bootvid/bootvid.h"
 
-typedef struct _BT_PROGRESS_INDICATOR
-{
-    ULONG Count;
-    ULONG Expected;
-    ULONG Percentage;
-} BT_PROGRESS_INDICATOR, *PBT_PROGRESS_INDICATOR;
-
-typedef enum _ROT_BAR_TYPE
-{
-    RB_UNSPECIFIED,
-    RB_SQUARE_CELLS,
-    RB_PROGRESS_BAR
-} ROT_BAR_TYPE;
-
-VOID
-NTAPI
-InbvUpdateProgressBar(
-    IN ULONG Progress
-);
-
-VOID
-NTAPI
-InbvRotBarInit(
-    VOID
-);
-
+//
+// Driver Initialization
+//
 BOOLEAN
 NTAPI
 InbvDriverInitialize(
@@ -40,10 +13,51 @@ InbvDriverInitialize(
     IN ULONG Count
 );
 
+extern BOOLEAN InbvBootDriverInstalled;
+
+PUCHAR
+NTAPI
+InbvGetResourceAddress(
+    IN ULONG ResourceNumber
+);
+
 VOID
 NTAPI
-InbvEnableBootDriver(
-    IN BOOLEAN Enable
+InbvBitBlt(
+    IN PUCHAR Buffer,
+    IN ULONG X,
+    IN ULONG Y
+);
+
+//
+// Progress-Bar Functions
+//
+VOID
+NTAPI
+InbvIndicateProgress(
+    VOID
+);
+
+VOID
+NTAPI
+InbvSetProgressBarSubset(
+    _In_ ULONG Floor,
+    _In_ ULONG Ceiling
+);
+
+VOID
+NTAPI
+InbvUpdateProgressBar(
+    IN ULONG Progress
+);
+
+//
+// Boot Splash-Screen Functions
+//
+VOID
+NTAPI
+InbvRotBarInit(
+    VOID
 );
 
 VOID
@@ -64,31 +78,20 @@ FinalizeBootLogo(
     VOID
 );
 
-PUCHAR
-NTAPI
-InbvGetResourceAddress(
-    IN ULONG ResourceNumber
-);
-
-VOID
-NTAPI
-InbvBitBlt(
-    IN PUCHAR Buffer,
-    IN ULONG X,
-    IN ULONG Y
-);
-
-VOID
-NTAPI
-InbvIndicateProgress(
-    VOID
-);
-
+//
+// Headless Terminal Support Functions
+//
 VOID
 NTAPI
 InbvPortEnableFifo(
     IN ULONG PortId,
     IN BOOLEAN Enable
+);
+
+BOOLEAN
+NTAPI
+InbvPortPollOnly(
+    IN ULONG PortId
 );
 
 BOOLEAN
@@ -120,11 +123,3 @@ InbvPortInitialize(
     OUT PULONG PortId,
     IN BOOLEAN IsMMIODevice
 );
-
-BOOLEAN
-NTAPI
-InbvPortPollOnly(
-    IN ULONG PortId
-);
-
-extern BOOLEAN InbvBootDriverInstalled;

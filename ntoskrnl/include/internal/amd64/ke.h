@@ -229,11 +229,7 @@ FORCEINLINE
 VOID
 KiRundownThread(IN PKTHREAD Thread)
 {
-#ifndef CONFIG_SMP
-    DbgPrint("KiRundownThread is unimplemented\n");
-#else
     /* Nothing to do */
-#endif
 }
 
 /* Registers an interrupt handler with an IDT vector */
@@ -282,16 +278,16 @@ KeQueryInterruptHandler(IN ULONG Vector)
                    (ULONG64)Idt->OffsetLow);
 }
 
-VOID
 FORCEINLINE
+VOID
 KiSendEOI(VOID)
 {
     /* Write 0 to the apic EOI register */
     *((volatile ULONG*)APIC_EOI_REGISTER) = 0;
 }
 
-VOID
 FORCEINLINE
+VOID
 KiEndInterrupt(IN KIRQL Irql,
                IN PKTRAP_FRAME TrapFrame)
 {
@@ -300,8 +296,8 @@ KiEndInterrupt(IN KIRQL Irql,
     //KeLowerIrql(Irql);
 }
 
-BOOLEAN
 FORCEINLINE
+BOOLEAN
 KiUserTrap(IN PKTRAP_FRAME TrapFrame)
 {
     /* Anything else but Ring 0 is Ring 3 */
@@ -314,7 +310,7 @@ struct _KPCR;
 
 //VOID KiInitializeTss(IN PKTSS Tss, IN UINT64 Stack);
 
-VOID KiSwitchToBootStack(IN ULONG_PTR InitialStack);
+DECLSPEC_NORETURN VOID KiSwitchToBootStack(IN ULONG_PTR InitialStack);
 VOID KiDivideErrorFault(VOID);
 VOID KiDebugTrapOrFault(VOID);
 VOID KiNmiInterrupt(VOID);
@@ -386,6 +382,13 @@ HalAllocateAdapterChannel(
   IN PWAIT_CONTEXT_BLOCK  Wcb,
   IN ULONG  NumberOfMapRegisters,
   IN PDRIVER_CONTROL  ExecutionRoutine);
+
+FORCEINLINE
+PULONG_PTR
+KiGetUserModeStackAddress(void)
+{
+    return &PsGetCurrentThread()->Tcb.TrapFrame->Rsp;
+}
 
 #endif /* __NTOSKRNL_INCLUDE_INTERNAL_AMD64_KE_H */
 

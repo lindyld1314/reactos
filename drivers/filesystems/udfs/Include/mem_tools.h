@@ -221,6 +221,12 @@ VOID inline MyFreePool__(PVOID addr) {
 
 #endif //MY_MEM_BOUNDS_CHECK
 
+/* This function just scares the hell out of GCC */
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
+
 ULONG inline MyReallocPool__(PCHAR addr, ULONG len, PCHAR *pnewaddr, ULONG newlen) {
     ULONG _len, _newlen;
     _newlen = MyAlignSize__(newlen);
@@ -265,7 +271,7 @@ ULONG inline MyReallocPool__(PCHAR addr, ULONG len, PCHAR *pnewaddr, ULONG newle
             RtlCopyMemory(newaddr, addr, newlen);
         } else {
             RtlCopyMemory(newaddr, addr, len);
-            RtlZeroMemory(newaddr+len, newlen - len);
+            RtlZeroMemory(newaddr+len, _newlen - len);
         }
 #ifdef MY_MEM_BOUNDS_CHECK
         for(i=0; i<MY_HEAP_ALIGN+1; i++) {
@@ -292,6 +298,9 @@ ULONG inline MyReallocPool__(PCHAR addr, ULONG len, PCHAR *pnewaddr, ULONG newle
 */
     return newlen;
 }
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #ifndef MY_USE_ALIGN
 #undef  MyAlignSize__

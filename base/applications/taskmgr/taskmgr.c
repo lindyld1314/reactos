@@ -210,6 +210,8 @@ TaskManagerWndProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
     switch (message) {
     case WM_INITDIALOG:
+        // For now, the Help dialog menu item is disabled because of lacking of HTML Help support
+        EnableMenuItem(GetMenu(hDlg), ID_HELP_TOPICS, MF_BYCOMMAND | MF_GRAYED);
         hMainWnd = hDlg;
         return OnCreate(hDlg);
 
@@ -321,9 +323,6 @@ TaskManagerWndProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         case ID_PROCESS_PAGE_SETPRIORITY_LOW:
             DoSetPriority(IDLE_PRIORITY_CLASS);
-            break;
-        case ID_PROCESS_PAGE_DEBUGCHANNELS:
-            ProcessPage_OnDebugChannels();
             break;
 
 /* ShutDown items */

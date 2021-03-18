@@ -127,7 +127,7 @@
 @ thiscall -arch=win64 ?MakeUpper@CHString@@QEAAXXZ() _ZN8CHString9MakeUpperEv # public: void __thiscall CHString::MakeUpper(void)
 @ thiscall -arch=win64 ?Mid@CHString@@QEBA?AV1@H@Z(long) _ZNK8CHString3MidEi # public: class CHString __thiscall CHString::Mid(int)const
 @ thiscall -arch=win64 ?Mid@CHString@@QEBA?AV1@HH@Z(long long) _ZNK8CHString3MidEii # public: class CHString __thiscall CHString::Mid(int,int)const
-@ thiscall -arch=win64 ?Release@CHString@@KAXPEAUCHStringData@@@Z(ptr) _ZN8CHString7ReleaseEP12CHStringData@4 # protected: static void __stdcall CHString::Release(struct CHStringData *)
+@ thiscall -arch=win64 ?Release@CHString@@KAXPEAUCHStringData@@@Z(ptr) _ZN8CHString7ReleaseEP12CHStringData # protected: static void __stdcall CHString::Release(struct CHStringData *)
 @ thiscall -arch=win64 ?Release@CHString@@IEAAXXZ() _ZN8CHString7ReleaseEv # protected: void __thiscall CHString::Release(void)
 @ thiscall -arch=win64 ?ReleaseBuffer@CHString@@QEAAXH@Z(long) _ZN8CHString13ReleaseBufferEi # public: void __thiscall CHString::ReleaseBuffer(int)
 @ thiscall -arch=win64 ?ReverseFind@CHString@@QEBAHG@Z(long) _ZNK8CHString11ReverseFindEw # public: int __thiscall CHString::ReverseFind(unsigned short)const
@@ -634,8 +634,8 @@
 ;@ cdecl -arch=arm ?QueryObjectSink@CWbemProviderGlue@@UAAJJPAPAUIWbemObjectSink@@@Z()
 ;@ cdecl -arch=arm ?QueryPostProcess@MethodContext@@UAAXXZ()
 ;@ cdecl -arch=arm ?RegisterForMessage@CWinMsgEvent@@IAAXIH@Z()
-# @ cdecl -arch=arm ?Release@CHString@@QAAXXZ() # FIXME!
-# @ cdecl -arch=arm ?Release@CHString@@SAXPAUCHStringData@@@Z() # FIXME!
+@ cdecl -arch=arm ?Release@CHString@@IAAXXZ()
+@ cdecl -arch=arm ?Release@CHString@@KAXPAUCHStringData@@@Z()
 ;@ cdecl -arch=arm ?Release@CInstance@@QAAJXZ()
 ;@ cdecl -arch=arm ?Release@CThreadBase@@QAAJXZ()
 ;@ cdecl -arch=arm ?Release@CWbemGlueFactory@@UAAKXZ()

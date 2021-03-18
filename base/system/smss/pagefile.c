@@ -23,7 +23,7 @@
 #define MEGABYTE                        0x100000UL
 #define MAXIMUM_PAGEFILE_SIZE           (4095 * MEGABYTE)
 /* This should be 32 MB, but we need more than that for 2nd stage setup */
-#define MINIMUM_TO_KEEP_FREE            (64 * MEGABYTE)
+#define MINIMUM_TO_KEEP_FREE            (256 * MEGABYTE)
 #define FUZZ_FACTOR                     (16 * MEGABYTE)
 
 //
@@ -837,8 +837,8 @@ SmpCreateVolumeDescriptors(VOID)
     /* Query the device map so we can get the drive letters */
     Status = NtQueryInformationProcess(NtCurrentProcess(),
                                        ProcessDeviceMap,
-                                       &ProcessInformation,
-                                       sizeof(ProcessInformation),
+                                       &ProcessInformation.Query,
+                                       sizeof(ProcessInformation.Query),
                                        NULL);
     if (!NT_SUCCESS(Status))
     {
@@ -851,8 +851,8 @@ SmpCreateVolumeDescriptors(VOID)
     wcscpy(Buffer, L"\\??\\A:\\");
     RtlInitUnicodeString(&VolumePath, Buffer);
 
-    /* Start with the C drive except on weird Japanese NECs... */
-    StartChar = SharedUserData->AlternativeArchitecture ? L'A' : L'C';
+    /* Start with the C drive, except on NEC PC-98 */
+    StartChar = IsNEC_98 ? L'A' : L'C';
     for (Drive = StartChar, DriveDiff = StartChar - L'A'; Drive <= L'Z'; Drive++, DriveDiff++)
     {
         /* Skip the disk if it's not in the drive map */

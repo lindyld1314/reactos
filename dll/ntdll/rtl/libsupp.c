@@ -505,6 +505,49 @@ RtlpGetAtomEntry(PRTL_ATOM_TABLE AtomTable, ULONG Index)
    return NULL;
 }
 
+/* Ldr SEH-Protected access to IMAGE_NT_HEADERS */
+
+/* Rtl SEH-Free version of this */
+NTSTATUS
+NTAPI
+RtlpImageNtHeaderEx(
+    _In_ ULONG Flags,
+    _In_ PVOID Base,
+    _In_ ULONG64 Size,
+    _Out_ PIMAGE_NT_HEADERS *OutHeaders);
+
+
+/*
+ * @implemented
+ * @note: This is here, so that we do not drag SEH into rosload, freeldr and bootmgfw
+ */
+NTSTATUS
+NTAPI
+RtlImageNtHeaderEx(
+    _In_ ULONG Flags,
+    _In_ PVOID Base,
+    _In_ ULONG64 Size,
+    _Out_ PIMAGE_NT_HEADERS *OutHeaders)
+{
+    NTSTATUS Status;
+
+    /* Assume failure. This is also done in RtlpImageNtHeaderEx, but this is guarded by SEH. */
+    if (OutHeaders != NULL)
+        *OutHeaders = NULL;
+
+    _SEH2_TRY
+    {
+        Status = RtlpImageNtHeaderEx(Flags, Base, Size, OutHeaders);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        /* Fail with the SEH error */
+        Status = _SEH2_GetExceptionCode();
+    }
+    _SEH2_END;
+
+    return Status;
+}
 
 /*
  * Ldr Resource support code
@@ -792,6 +835,8 @@ RtlDosApplyFileIsolationRedirection_Ustr(IN ULONG Flags,
     WCHAR *p;
     BOOLEAN GotExtension;
     WCHAR c;
+    C_ASSERT(sizeof(UNICODE_NULL) == sizeof(WCHAR));
+
 
     /* Check for invalid parameters */
     if (!OriginalName)
@@ -817,6 +862,72 @@ RtlDosApplyFileIsolationRedirection_Ustr(IN ULONG Flags,
     if (StaticString && (OriginalName == StaticString || OriginalName->Buffer == StaticString->Buffer))
     {
         return STATUS_SXS_KEY_NOT_FOUND;
+    }
+
+    if (NtCurrentPeb()->ProcessParameters &&
+        (NtCurrentPeb()->ProcessParameters->Flags & RTL_USER_PROCESS_PARAMETERS_PRIVATE_DLL_PATH))
+    {
+        UNICODE_STRING RealName, LocalName;
+        WCHAR RealNameBuf[MAX_PATH], LocalNameBuf[MAX_PATH];
+
+        RtlInitEmptyUnicodeString(&RealName, RealNameBuf, sizeof(RealNameBuf));
+        RtlInitEmptyUnicodeString(&LocalName, LocalNameBuf, sizeof(LocalNameBuf));
+
+        Status = RtlComputePrivatizedDllName_U(OriginalName, &RealName, &LocalName);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("RtlComputePrivatizedDllName_U failed for %wZ: 0x%lx\n", OriginalName, Status);
+            return Status;
+        }
+
+        if (RtlDoesFileExists_UStr(&LocalName))
+        {
+            Status = get_buffer(&fullname, LocalName.Length + sizeof(UNICODE_NULL), StaticString, DynamicString != NULL);
+            if (NT_SUCCESS(Status))
+            {
+                RtlCopyMemory(fullname, LocalName.Buffer, LocalName.Length + sizeof(UNICODE_NULL));
+            }
+            else
+            {
+                DPRINT1("Error while retrieving buffer for %wZ: 0x%lx\n", OriginalName, Status);
+            }
+        }
+        else if (RtlDoesFileExists_UStr(&RealName))
+        {
+            Status = get_buffer(&fullname, RealName.Length + sizeof(UNICODE_NULL), StaticString, DynamicString != NULL);
+            if (NT_SUCCESS(Status))
+            {
+                RtlCopyMemory(fullname, RealName.Buffer, RealName.Length + sizeof(UNICODE_NULL));
+            }
+            else
+            {
+                DPRINT1("Error while retrieving buffer for %wZ: 0x%lx\n", OriginalName, Status);
+            }
+        }
+        else
+        {
+            Status = STATUS_NOT_FOUND;
+        }
+
+        if (RealName.Buffer != RealNameBuf)
+            RtlFreeUnicodeString(&RealName);
+        if (LocalName.Buffer != LocalNameBuf)
+            RtlFreeUnicodeString(&LocalName);
+
+        if (NT_SUCCESS(Status))
+        {
+            DPRINT("Redirecting %wZ to %S\n", OriginalName, fullname);
+            if (!StaticString || StaticString->Buffer != fullname)
+            {
+                RtlInitUnicodeString(DynamicString, fullname);
+                *NewName = DynamicString;
+            }
+            else
+            {
+                *NewName = StaticString;
+            }
+            return Status;
+        }
     }
 
     pstrParam = OriginalName;

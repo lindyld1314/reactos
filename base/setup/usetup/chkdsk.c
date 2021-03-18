@@ -16,7 +16,8 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-/* COPYRIGHT:       See COPYING in the top level directory
+/*
+ * COPYRIGHT:       See COPYING in the top level directory
  * PROJECT:         ReactOS text-mode setup
  * FILE:            base/setup/usetup/chkdsk.c
  * PURPOSE:         Filesystem chkdsk support functions
@@ -52,16 +53,11 @@ ChkdskCallback(
     return TRUE;
 }
 
-
 NTSTATUS
-ChkdskPartition(
-    IN PUNICODE_STRING DriveRoot,
-    IN PFILE_SYSTEM_ITEM FileSystem)
+DoChkdsk(
+    IN PPARTENTRY PartEntry)
 {
     NTSTATUS Status;
-
-    if (!FileSystem->ChkdskFunc)
-        return STATUS_NOT_SUPPORTED;
 
     ChkdskProgressBar = CreateProgressBar(6,
                                           yScreen - 14,
@@ -74,12 +70,13 @@ ChkdskPartition(
 
     ProgressSetStepCount(ChkdskProgressBar, 100);
 
-    Status = FileSystem->ChkdskFunc(DriveRoot,
-                                    TRUE,            /* FixErrors */
-                                    FALSE,           /* Verbose */
-                                    TRUE,            /* CheckOnlyIfDirty */
-                                    FALSE,           /* ScanDrive */
-                                    ChkdskCallback); /* Callback */
+    // TODO: Think about which values could be defaulted...
+    Status = ChkdskPartition(PartEntry,
+                             TRUE,            /* FixErrors */
+                             FALSE,           /* Verbose */
+                             TRUE,            /* CheckOnlyIfDirty */
+                             FALSE,           /* ScanDrive */
+                             ChkdskCallback); /* Callback */
 
     DestroyProgressBar(ChkdskProgressBar);
     ChkdskProgressBar = NULL;

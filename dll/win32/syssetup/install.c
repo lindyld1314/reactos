@@ -26,8 +26,8 @@
 #define NDEBUG
 #include <debug.h>
 
-DWORD WINAPI
-CMP_WaitNoPendingInstallEvents(DWORD dwTimeout);
+//DWORD WINAPI
+//CMP_WaitNoPendingInstallEvents(DWORD dwTimeout);
 
 DWORD WINAPI
 SetupStartService(LPCWSTR lpServiceName, BOOL bWait);
@@ -36,6 +36,16 @@ SetupStartService(LPCWSTR lpServiceName, BOOL bWait);
 
 HINF hSysSetupInf = INVALID_HANDLE_VALUE;
 ADMIN_INFO AdminInfo;
+
+typedef struct _DLG_DATA
+{
+    HBITMAP hLogoBitmap;
+    HBITMAP hBarBitmap;
+    HWND hWndBarCtrl;
+    DWORD BarCounter;
+    DWORD BarWidth;
+    DWORD BarHeight;
+} DLG_DATA, *PDLG_DATA;
 
 /* FUNCTIONS ****************************************************************/
 
@@ -531,17 +541,112 @@ StatusMessageWindowProc(
     IN WPARAM wParam,
     IN LPARAM lParam)
 {
+    PDLG_DATA pDlgData;
     UNREFERENCED_PARAMETER(wParam);
+
+    pDlgData = (PDLG_DATA)GetWindowLongPtrW(hwndDlg, GWLP_USERDATA);
+
+    /* pDlgData is required for each case except WM_INITDIALOG */
+    if (uMsg != WM_INITDIALOG && pDlgData == NULL) return FALSE;
 
     switch (uMsg)
     {
         case WM_INITDIALOG:
         {
+            BITMAP bm;
             WCHAR szMsg[256];
 
+            /* Allocate pDlgData */
+            pDlgData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*pDlgData));
+            if (pDlgData)
+            {
+                /* Set pDlgData to GWLP_USERDATA, so we can get it for new messages */
+                SetWindowLongPtrW(hwndDlg, GWLP_USERDATA, (LONG_PTR)pDlgData);
+
+                /* Load bitmaps */
+                pDlgData->hLogoBitmap = LoadImageW(hDllInstance,
+                                                    MAKEINTRESOURCEW(IDB_REACTOS), IMAGE_BITMAP,
+                                                    0, 0, LR_DEFAULTCOLOR);
+
+                pDlgData->hBarBitmap = LoadImageW(hDllInstance, MAKEINTRESOURCEW(IDB_LINE),
+                                                IMAGE_BITMAP, 0, 0, LR_DEFAULTCOLOR);
+                GetObject(pDlgData->hBarBitmap, sizeof(bm), &bm);
+                pDlgData->BarWidth = bm.bmWidth;
+                pDlgData->BarHeight = bm.bmHeight;
+
+                if (pDlgData->hLogoBitmap && pDlgData->hBarBitmap)
+                {
+                    if (SetTimer(hwndDlg, IDT_BAR, 20, NULL) == 0)
+                    {
+                        DPRINT1("SetTimer(IDT_BAR) failed: %lu\n", GetLastError());
+                    }
+
+                    /* Get the animation bar control */
+                    pDlgData->hWndBarCtrl = GetDlgItem(hwndDlg, IDC_BAR);
+                }
+            }
+
+            /* Get and set status text */
             if (!LoadStringW(hDllInstance, IDS_STATUS_INSTALL_DEV, szMsg, ARRAYSIZE(szMsg)))
                 return FALSE;
             SetDlgItemTextW(hwndDlg, IDC_STATUSLABEL, szMsg);
+
+            return TRUE;
+        }
+
+        case WM_TIMER:
+        {
+            if (pDlgData->hBarBitmap)
+            {
+                /*
+                 * Default rotation bar image width is 413 (same as logo)
+                 * We can divide 413 by 7 without remainder
+                 */
+                pDlgData->BarCounter = (pDlgData->BarCounter + 7) % pDlgData->BarWidth;
+                InvalidateRect(pDlgData->hWndBarCtrl, NULL, FALSE);
+                UpdateWindow(pDlgData->hWndBarCtrl);
+            }
+            return TRUE;
+        }
+
+        case WM_DRAWITEM:
+        {
+            LPDRAWITEMSTRUCT lpDis = (LPDRAWITEMSTRUCT)lParam;
+
+            if (lpDis->CtlID != IDC_BAR)
+            {
+                return FALSE;
+            }
+
+            if (pDlgData->hBarBitmap)
+            {
+                HDC hdcMem;
+                HGDIOBJ hOld;
+                DWORD off = pDlgData->BarCounter;
+                DWORD iw = pDlgData->BarWidth;
+                DWORD ih = pDlgData->BarHeight;
+
+                hdcMem = CreateCompatibleDC(lpDis->hDC);
+                hOld = SelectObject(hdcMem, pDlgData->hBarBitmap);
+                BitBlt(lpDis->hDC, off, 0, iw - off, ih, hdcMem, 0, 0, SRCCOPY);
+                BitBlt(lpDis->hDC, 0, 0, off, ih, hdcMem, iw - off, 0, SRCCOPY);
+                SelectObject(hdcMem, hOld);
+                DeleteDC(hdcMem);
+                return TRUE;
+            }
+            return FALSE;
+        }
+
+        case WM_DESTROY:
+        {
+            if (pDlgData->hBarBitmap)
+            {
+                KillTimer(hwndDlg, IDT_BAR);
+            }
+
+            DeleteObject(pDlgData->hLogoBitmap);
+            DeleteObject(pDlgData->hBarBitmap);
+            HeapFree(GetProcessHeap(), 0, pDlgData);
             return TRUE;
         }
     }
@@ -552,9 +657,9 @@ static DWORD WINAPI
 ShowStatusMessageThread(
     IN LPVOID lpParameter)
 {
-    HWND *phWnd = (HWND *)lpParameter;
-    HWND hWnd, hItem;
+    HWND hWnd;
     MSG Msg;
+    UNREFERENCED_PARAMETER(lpParameter);
 
     hWnd = CreateDialogParam(hDllInstance,
                              MAKEINTRESOURCE(IDD_STATUSWINDOW_DLG),
@@ -563,15 +668,8 @@ ShowStatusMessageThread(
                              (LPARAM)NULL);
     if (!hWnd)
         return 0;
-    *phWnd = hWnd;
 
     ShowWindow(hWnd, SW_SHOW);
-
-    hItem = GetDlgItem(hWnd, IDC_STATUSPROGRESS);
-    if (hItem)
-    {
-        PostMessage(hItem, PBM_SETMARQUEE, TRUE, 40);
-    }
 
     /* Message loop for the Status window */
     while (GetMessage(&Msg, NULL, 0, 0))
@@ -579,6 +677,8 @@ ShowStatusMessageThread(
         TranslateMessage(&Msg);
         DispatchMessage(&Msg);
     }
+
+    EndDialog(hWnd, 0);
 
     return 0;
 }
@@ -667,7 +767,8 @@ cleanup:
 static BOOL
 CommonInstall(VOID)
 {
-    HWND hWnd = NULL;
+    HANDLE hThread = NULL;
+    BOOL bResult = FALSE;
 
     hSysSetupInf = SetupOpenInfFileW(L"syssetup.inf",
                                      NULL,
@@ -682,113 +783,54 @@ CommonInstall(VOID)
     if (!InstallSysSetupInfDevices())
     {
         FatalError("InstallSysSetupInfDevices() failed!\n");
-        goto error;
+        goto Exit;
     }
 
     if(!InstallSysSetupInfComponents())
     {
         FatalError("InstallSysSetupInfComponents() failed!\n");
-        goto error;
+        goto Exit;
     }
 
     if (!IsConsoleBoot())
     {
-        HANDLE hThread;
-
         hThread = CreateThread(NULL,
                                0,
                                ShowStatusMessageThread,
-                               (LPVOID)&hWnd,
+                               NULL,
                                0,
                                NULL);
-        if (hThread)
-            CloseHandle(hThread);
     }
 
     if (!EnableUserModePnpManager())
     {
         FatalError("EnableUserModePnpManager() failed!\n");
-        goto error;
+        goto Exit;
     }
 
     if (CMP_WaitNoPendingInstallEvents(INFINITE) != WAIT_OBJECT_0)
     {
         FatalError("CMP_WaitNoPendingInstallEvents() failed!\n");
-        goto error;
+        goto Exit;
     }
 
-    EndDialog(hWnd, 0);
-    return TRUE;
+    bResult = TRUE;
 
-error:
-    if (hWnd)
-        EndDialog(hWnd, 0);
-    SetupCloseInfFile(hSysSetupInf);
-    return FALSE;
-}
+Exit:
 
-/* Install a section of a .inf file
- * Returns TRUE if success, FALSE if failure. Error code can
- * be retrieved with GetLastError()
- */
-static
-BOOL
-InstallInfSection(
-    IN HWND hWnd,
-    IN LPCWSTR InfFile,
-    IN LPCWSTR InfSection OPTIONAL,
-    IN LPCWSTR InfService OPTIONAL)
-{
-    WCHAR Buffer[MAX_PATH];
-    HINF hInf = INVALID_HANDLE_VALUE;
-    UINT BufferSize;
-    PVOID Context = NULL;
-    BOOL ret = FALSE;
-
-    /* Get Windows directory */
-    BufferSize = ARRAYSIZE(Buffer) - 5 - wcslen(InfFile);
-    if (GetWindowsDirectoryW(Buffer, BufferSize) > BufferSize)
+    if (bResult == FALSE)
     {
-        /* Function failed */
-        SetLastError(ERROR_GEN_FAILURE);
-        goto cleanup;
+        SetupCloseInfFile(hSysSetupInf);
     }
-    /* We have enough space to add some information in the buffer */
-    if (Buffer[wcslen(Buffer) - 1] != '\\')
-        wcscat(Buffer, L"\\");
-    wcscat(Buffer, L"Inf\\");
-    wcscat(Buffer, InfFile);
 
-    /* Install specified section */
-    hInf = SetupOpenInfFileW(Buffer, NULL, INF_STYLE_WIN4, NULL);
-    if (hInf == INVALID_HANDLE_VALUE)
-        goto cleanup;
-
-    Context = SetupInitDefaultQueueCallback(hWnd);
-    if (Context == NULL)
-        goto cleanup;
-
-    ret = TRUE;
-    if (ret && InfSection)
+    if (hThread != NULL)
     {
-        ret = SetupInstallFromInfSectionW(
-                hWnd, hInf,
-                InfSection, SPINST_ALL,
-                NULL, NULL, SP_COPY_NEWER,
-                SetupDefaultQueueCallbackW, Context,
-                NULL, NULL);
-    }
-    if (ret && InfService)
-    {
-        ret = SetupInstallServicesFromInfSectionW(hInf, InfService, 0);
+        PostThreadMessage(GetThreadId(hThread), WM_QUIT, 0, 0);
+        WaitForSingleObject(hThread, INFINITE);
+        CloseHandle(hThread);
     }
 
-cleanup:
-    if (Context)
-        SetupTermDefaultQueueCallback(Context);
-    if (hInf != INVALID_HANDLE_VALUE)
-        SetupCloseInfFile(hInf);
-    return ret;
+    return bResult;
 }
 
 static
@@ -799,24 +841,22 @@ InstallLiveCD(VOID)
     PROCESS_INFORMATION ProcessInformation;
     BOOL bRes;
 
-    /* Hack: Install TCP/IP protocol driver */
-    bRes = InstallInfSection(NULL,
-                             L"nettcpip.inf",
-                             L"MS_TCPIP.PrimaryInstall",
-                             L"MS_TCPIP.PrimaryInstall.Services");
+    if (!CommonInstall())
+        goto error;
+
+    /* Install the TCP/IP protocol driver */
+    bRes = InstallNetworkComponent(L"MS_TCPIP");
     if (!bRes && GetLastError() != ERROR_FILE_NOT_FOUND)
     {
-        DPRINT("InstallInfSection() failed with error 0x%lx\n", GetLastError());
+        DPRINT("InstallNetworkComponent() failed with error 0x%lx\n", GetLastError());
     }
     else
     {
         /* Start the TCP/IP protocol driver */
         SetupStartService(L"Tcpip", FALSE);
         SetupStartService(L"Dhcp", FALSE);
+        SetupStartService(L"Dnscache", FALSE);
     }
-
-    if (!CommonInstall())
-        goto error;
 
     /* Register components */
     _SEH2_TRY
@@ -1173,6 +1213,79 @@ done:
 
 static
 DWORD
+SaveDefaultUserHive(VOID)
+{
+    WCHAR szDefaultUserHive[MAX_PATH];
+    HKEY hUserKey = NULL;
+    DWORD cchSize;
+    DWORD dwError;
+
+    DPRINT("SaveDefaultUserHive()\n");
+
+    cchSize = ARRAYSIZE(szDefaultUserHive);
+    GetDefaultUserProfileDirectoryW(szDefaultUserHive, &cchSize);
+
+    wcscat(szDefaultUserHive, L"\\ntuser.dat");
+
+    dwError = RegOpenKeyExW(HKEY_USERS,
+                            L".DEFAULT",
+                            0,
+                            KEY_READ,
+                            &hUserKey);
+    if (dwError != ERROR_SUCCESS)
+    {
+        DPRINT1("RegOpenKeyExW() failed (Error %lu)\n", dwError);
+        return dwError;
+    }
+
+    pSetupEnablePrivilege(L"SeBackupPrivilege", TRUE);
+
+    /* Save the Default hive */
+    dwError = RegSaveKeyExW(hUserKey,
+                            szDefaultUserHive,
+                            NULL,
+                            REG_STANDARD_FORMAT);
+    if (dwError == ERROR_ALREADY_EXISTS)
+    {
+        WCHAR szBackupHive[MAX_PATH];
+
+        /* Build the backup hive file name by replacing the extension */
+        wcscpy(szBackupHive, szDefaultUserHive);
+        wcscpy(&szBackupHive[wcslen(szBackupHive) - 4], L".bak");
+
+        /* Back up the existing default user hive by renaming it, replacing any possible existing old backup */
+        if (!MoveFileExW(szDefaultUserHive,
+                         szBackupHive,
+                         MOVEFILE_REPLACE_EXISTING))
+        {
+            dwError = GetLastError();
+            DPRINT1("Failed to create a default-user hive backup '%S', MoveFileExW failed (Error %lu)\n",
+                    szBackupHive, dwError);
+        }
+        else
+        {
+            /* The backup has been done, retry saving the Default hive */
+            dwError = RegSaveKeyExW(hUserKey,
+                                    szDefaultUserHive,
+                                    NULL,
+                                    REG_STANDARD_FORMAT);
+        }
+    }
+    if (dwError != ERROR_SUCCESS)
+    {
+        DPRINT1("RegSaveKeyExW() failed (Error %lu)\n", dwError);
+    }
+
+    pSetupEnablePrivilege(L"SeBackupPrivilege", FALSE);
+
+    RegCloseKey(hUserKey);
+
+    return dwError;
+}
+
+
+static
+DWORD
 InstallReactOS(VOID)
 {
     WCHAR szBuffer[MAX_PATH];
@@ -1233,27 +1346,36 @@ InstallReactOS(VOID)
         CreateDirectory(szBuffer, NULL);
     }
 
+    if (SaveDefaultUserHive() != ERROR_SUCCESS)
+    {
+        FatalError("SaveDefaultUserHive() failed");
+        return 0;
+    }
+
+    if (!CopySystemProfile(0))
+    {
+        FatalError("CopySystemProfile() failed");
+        return 0;
+    }
+
     hHotkeyThread = CreateThread(NULL, 0, HotkeyThread, NULL, 0, NULL);
 
-    /* Hack: Install TCP/IP protocol driver */
-    ret = InstallInfSection(NULL,
-                            L"nettcpip.inf",
-                            L"MS_TCPIP.PrimaryInstall",
-                            L"MS_TCPIP.PrimaryInstall.Services");
+    if (!CommonInstall())
+        return 0;
+
+    /* Install the TCP/IP protocol driver */
+    ret = InstallNetworkComponent(L"MS_TCPIP");
     if (!ret && GetLastError() != ERROR_FILE_NOT_FOUND)
     {
-        DPRINT("InstallInfSection() failed with error 0x%lx\n", GetLastError());
+        DPRINT("InstallNetworkComponent() failed with error 0x%lx\n", GetLastError());
     }
     else
     {
         /* Start the TCP/IP protocol driver */
         SetupStartService(L"Tcpip", FALSE);
         SetupStartService(L"Dhcp", FALSE);
+        SetupStartService(L"Dnscache", FALSE);
     }
-
-
-    if (!CommonInstall())
-        return 0;
 
     InstallWizard();
 

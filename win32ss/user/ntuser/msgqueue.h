@@ -127,7 +127,7 @@ enum internal_event_message
 
 extern LIST_ENTRY usmList;
 
-BOOL FASTCALL MsqIsHung(PTHREADINFO pti);
+BOOL FASTCALL MsqIsHung(PTHREADINFO pti, DWORD TimeOut);
 VOID CALLBACK HungAppSysTimerProc(HWND,UINT,UINT_PTR,DWORD);
 NTSTATUS FASTCALL co_MsqSendMessage(PTHREADINFO ptirec,
            HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam,
@@ -158,7 +158,7 @@ BOOLEAN FASTCALL MsqInitializeMessageQueue(PTHREADINFO, PUSER_MESSAGE_QUEUE);
 PUSER_MESSAGE_QUEUE FASTCALL MsqCreateMessageQueue(PTHREADINFO);
 VOID FASTCALL MsqCleanupThreadMsgs(PTHREADINFO);
 VOID FASTCALL MsqDestroyMessageQueue(_In_ PTHREADINFO pti);
-INIT_FUNCTION NTSTATUS NTAPI MsqInitializeImpl(VOID);
+NTSTATUS NTAPI MsqInitializeImpl(VOID);
 BOOLEAN FASTCALL co_MsqDispatchOneSentMessage(_In_ PTHREADINFO pti);
 NTSTATUS FASTCALL
 co_MsqWaitForNewMessages(PTHREADINFO pti, PWND WndFilter,
@@ -248,12 +248,6 @@ VOID APIENTRY MsqRemoveWindowMessagesFromQueue(PWND pWindow);
 
 HANDLE FASTCALL IntMsqSetWakeMask(DWORD WakeMask);
 BOOL FASTCALL IntMsqClearWakeMask(VOID);
-
-static __inline LONG
-MsqCalculateMessageTime(IN PLARGE_INTEGER TickCount)
-{
-    return (LONG)(TickCount->QuadPart * (KeQueryTimeIncrement() / 10000));
-}
 
 VOID FASTCALL IdlePing(VOID);
 VOID FASTCALL IdlePong(VOID);

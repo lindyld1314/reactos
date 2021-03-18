@@ -13,11 +13,14 @@
 #define NDEBUG
 #include <debug.h>
 
+#define KD_PRINT_MAX_BYTES 512
+
 /* FUNCTIONS *****************************************************************/
 
 BOOLEAN
 NTAPI
-KdpPrintString(IN PSTRING Output)
+KdpPrintString(
+    _In_ PSTRING Output)
 {
     STRING Data, Header;
     DBGKD_DEBUG_IO DebugIo;
@@ -57,8 +60,9 @@ KdpPrintString(IN PSTRING Output)
 
 BOOLEAN
 NTAPI
-KdpPromptString(IN PSTRING PromptString,
-                IN PSTRING ResponseString)
+KdpPromptString(
+    _In_ PSTRING PromptString,
+    _In_ PSTRING ResponseString)
 {
     STRING Data, Header;
     DBGKD_DEBUG_IO DebugIo;
@@ -210,19 +214,20 @@ KdpSymbol(IN PSTRING DllPath,
 
 USHORT
 NTAPI
-KdpPrompt(IN LPSTR PromptString,
-          IN USHORT PromptLength,
-          OUT PCHAR ResponseString,
-          IN USHORT MaximumResponseLength,
-          IN KPROCESSOR_MODE PreviousMode,
-          IN PKTRAP_FRAME TrapFrame,
-          IN PKEXCEPTION_FRAME ExceptionFrame)
+KdpPrompt(
+    _In_reads_bytes_(PromptLength) PCHAR PromptString,
+    _In_ USHORT PromptLength,
+    _Out_writes_bytes_(MaximumResponseLength) PCHAR ResponseString,
+    _In_ USHORT MaximumResponseLength,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ PKTRAP_FRAME TrapFrame,
+    _In_ PKEXCEPTION_FRAME ExceptionFrame)
 {
     STRING PromptBuffer, ResponseBuffer;
     BOOLEAN Enable, Resend;
-    CHAR CapturedPrompt[512];
-    CHAR SafeResponseBuffer[512];
     PCHAR SafeResponseString;
+    CHAR CapturedPrompt[KD_PRINT_MAX_BYTES];
+    CHAR SafeResponseBuffer[KD_PRINT_MAX_BYTES];
 
     /* Normalize the lengths */
     PromptLength = min(PromptLength,
@@ -236,26 +241,18 @@ KdpPrompt(IN LPSTR PromptString,
         /* Handle user-mode buffers safely */
         _SEH2_TRY
         {
-            /* Probe the prompt */
-            ProbeForRead(PromptString,
-                         PromptLength,
-                         1);
-
-            /* Capture prompt */
-            KdpMoveMemory(CapturedPrompt,
-                          PromptString,
-                          PromptLength);
+            /* Probe and capture the prompt */
+            ProbeForRead(PromptString, PromptLength, 1);
+            KdpMoveMemory(CapturedPrompt, PromptString, PromptLength);
             PromptString = CapturedPrompt;
 
-            /* Probe and make room for response */
-            ProbeForWrite(ResponseString,
-                          MaximumResponseLength,
-                          1);
+            /* Probe and make room for the response */
+            ProbeForWrite(ResponseString, MaximumResponseLength, 1);
             SafeResponseString = SafeResponseBuffer;
         }
         _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
         {
-            /* Bad string pointer, bail out  */
+            /* Bad string pointer, bail out */
             _SEH2_YIELD(return 0);
         }
         _SEH2_END;
@@ -265,9 +262,9 @@ KdpPrompt(IN LPSTR PromptString,
         SafeResponseString = ResponseString;
     }
 
-    /* Setup the prompt and response  buffers */
+    /* Setup the prompt and response buffers */
     PromptBuffer.Buffer = PromptString;
-    PromptBuffer.Length = PromptLength;
+    PromptBuffer.Length = PromptBuffer.MaximumLength = PromptLength;
     ResponseBuffer.Buffer = SafeResponseString;
     ResponseBuffer.Length = 0;
     ResponseBuffer.MaximumLength = MaximumResponseLength;
@@ -290,19 +287,19 @@ KdpPrompt(IN LPSTR PromptString,
     /* Exit the debugger */
     KdExitDebugger(Enable);
 
-    /* Copy back response if required */
+    /* Copy back the response if required */
     if (PreviousMode != KernelMode)
     {
         _SEH2_TRY
         {
-            /* Safely copy back response to user mode  */
+            /* Safely copy back the response to user mode */
             KdpMoveMemory(ResponseString,
                           ResponseBuffer.Buffer,
                           ResponseBuffer.Length);
         }
         _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
         {
-            /* String became invalid after we exited, fail  */
+            /* String became invalid after we exited, fail */
             _SEH2_YIELD(return 0);
         }
         _SEH2_END;
@@ -312,68 +309,100 @@ KdpPrompt(IN LPSTR PromptString,
     return ResponseBuffer.Length;
 }
 
+static
 NTSTATUS
 NTAPI
-KdpPrint(IN ULONG ComponentId,
-         IN ULONG Level,
-         IN LPSTR String,
-         IN USHORT Length,
-         IN KPROCESSOR_MODE PreviousMode,
-         IN PKTRAP_FRAME TrapFrame,
-         IN PKEXCEPTION_FRAME ExceptionFrame,
-         OUT PBOOLEAN Handled)
+KdpPrintFromUser(
+    _In_ ULONG ComponentId,
+    _In_ ULONG Level,
+    _In_reads_bytes_(Length) PCHAR String,
+    _In_ USHORT Length,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ PKTRAP_FRAME TrapFrame,
+    _In_ PKEXCEPTION_FRAME ExceptionFrame,
+    _Out_ PBOOLEAN Handled)
 {
-    NTSTATUS ReturnStatus;
+    CHAR CapturedString[KD_PRINT_MAX_BYTES];
+
+    ASSERT(PreviousMode == UserMode);
+    ASSERT(Length <= sizeof(CapturedString));
+
+    /* Capture user-mode buffers */
+    _SEH2_TRY
+    {
+        /* Probe and capture the string */
+        ProbeForRead(String, Length, 1);
+        KdpMoveMemory(CapturedString, String, Length);
+        String = CapturedString;
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        /* Bad string pointer, bail out */
+        _SEH2_YIELD(return STATUS_ACCESS_VIOLATION);
+    }
+    _SEH2_END;
+
+    /* Now go through the kernel-mode code path */
+    return KdpPrint(ComponentId,
+                    Level,
+                    String,
+                    Length,
+                    KernelMode,
+                    TrapFrame,
+                    ExceptionFrame,
+                    Handled);
+}
+
+NTSTATUS
+NTAPI
+KdpPrint(
+    _In_ ULONG ComponentId,
+    _In_ ULONG Level,
+    _In_reads_bytes_(Length) PCHAR String,
+    _In_ USHORT Length,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _In_ PKTRAP_FRAME TrapFrame,
+    _In_ PKEXCEPTION_FRAME ExceptionFrame,
+    _Out_ PBOOLEAN Handled)
+{
+    NTSTATUS Status;
     BOOLEAN Enable;
     STRING OutputString;
-    PVOID CapturedString;
 
-    /* Assume failure */
-    *Handled = FALSE;
-
-    /* Validate the mask */
-    if (Level < 32) Level = 1 << Level;
-    if (!(Kd_WIN2000_Mask & Level) ||
-        ((ComponentId < KdComponentTableSize) &&
-        !(*KdComponentTable[ComponentId] & Level)))
+    if (NtQueryDebugFilterState(ComponentId, Level) == (NTSTATUS)FALSE)
     {
         /* Mask validation failed */
         *Handled = TRUE;
         return STATUS_SUCCESS;
     }
 
-    /* Normalize the length */
-    Length = min(Length, 512);
+    /* Assume failure */
+    *Handled = FALSE;
 
-    /* Check if we need to verify the buffer */
+    /* Normalize the length */
+    Length = min(Length, KD_PRINT_MAX_BYTES);
+
+    /* Check if we need to verify the string */
     if (PreviousMode != KernelMode)
     {
-        /* Capture user-mode buffers */
-        _SEH2_TRY
-        {
-            /* Probe the string */
-            ProbeForRead(String,
-                         Length,
-                         1);
-
-            /* Capture it */
-            CapturedString = alloca(Length);
-            KdpMoveMemory(CapturedString,
-                          String,
-                          Length);
-            String = CapturedString;
-        }
-        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-        {
-            /* Bad pointer, fail the print */
-            _SEH2_YIELD(return STATUS_ACCESS_VIOLATION);
-        }
-        _SEH2_END;
+        /* This case requires a 512 byte stack buffer.
+         * We don't want to use that much stack in the kernel case, but we
+         * can't use _alloca due to PSEH. So the buffer exists in this
+         * helper function instead.
+         */
+        return KdpPrintFromUser(ComponentId,
+                                Level,
+                                String,
+                                Length,
+                                PreviousMode,
+                                TrapFrame,
+                                ExceptionFrame,
+                                Handled);
     }
 
     /* Setup the output string */
     OutputString.Buffer = String;
-    OutputString.Length = Length;
+    OutputString.Length = OutputString.MaximumLength = Length;
 
     /* Log the print */
     //KdLogDbgPrint(&OutputString);
@@ -393,29 +422,30 @@ KdpPrint(IN ULONG ComponentId,
     if (KdpPrintString(&OutputString))
     {
         /* User pressed CTRL-C, breakpoint on return */
-        ReturnStatus = STATUS_BREAKPOINT;
+        Status = STATUS_BREAKPOINT;
     }
     else
     {
         /* String was printed */
-        ReturnStatus = STATUS_SUCCESS;
+        Status = STATUS_SUCCESS;
     }
 
     /* Exit the debugger and return */
     KdExitDebugger(Enable);
     *Handled = TRUE;
-    return ReturnStatus;
+    return Status;
 }
 
 VOID
 __cdecl
-KdpDprintf(IN PCHAR Format,
-           ...)
+KdpDprintf(
+    _In_ PCHAR Format,
+    ...)
 {
     STRING String;
-    CHAR Buffer[100];
     USHORT Length;
     va_list ap;
+    CHAR Buffer[100];
 
     /* Format the string */
     va_start(ap, Format);
@@ -423,12 +453,12 @@ KdpDprintf(IN PCHAR Format,
                                 sizeof(Buffer),
                                 Format,
                                 ap);
+    va_end(ap);
 
     /* Set it up */
     String.Buffer = Buffer;
-    String.Length = Length + 1;
+    String.Length = String.MaximumLength = Length;
 
     /* Send it to the debugger directly */
     KdpPrintString(&String);
-    va_end(ap);
 }

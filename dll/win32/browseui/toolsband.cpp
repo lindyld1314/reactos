@@ -24,10 +24,6 @@ Implements the toolbar band of a cabinet window
 
 #include "precomp.h"
 
-/* FIXME, I can't include windowsx because it conflicts with some #defines */
-#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
-#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
-
 class CToolsBand :
     public CWindowImpl<CToolsBand, CWindow, CControlWinTraits>,
     public CComObjectRootEx<CComMultiThreadModelNoCS>,
@@ -294,11 +290,11 @@ HRESULT STDMETHODCALLTYPE CToolsBand::SetSite(IUnknown* pUnkSite){
     SendMessage(TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_HIDECLIPPEDBUTTONS | TBSTYLE_EX_MIXEDBUTTONS | TBSTYLE_EX_DRAWDDARROWS);
 
     m_himlNormal = ImageList_LoadImageW(_AtlBaseModule.GetResourceInstance(), 
-                                        MAKEINTRESOURCE(IDB_SHELL_EXPLORER_LG),
+                                        MAKEINTRESOURCEW(IDB_SHELL_EXPLORER_LG),
                                         0, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_DEFAULTSIZE | LR_CREATEDIBSECTION);
 
     m_himlHot = ImageList_LoadImageW(_AtlBaseModule.GetResourceInstance(), 
-                                     MAKEINTRESOURCE(IDB_SHELL_EXPLORER_LG_HOT),
+                                     MAKEINTRESOURCEW(IDB_SHELL_EXPLORER_LG_HOT),
                                      0, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_DEFAULTSIZE | LR_CREATEDIBSECTION);
 
     SendMessage(TB_SETIMAGELIST, 0, (LPARAM) m_himlNormal);

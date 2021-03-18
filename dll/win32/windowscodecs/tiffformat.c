@@ -289,6 +289,7 @@ static HRESULT tiff_get_decode_info(TIFF *tiff, tiff_decode_info *decode_info)
     decode_info->reverse_bgr = 0;
     decode_info->invert_grayscale = 0;
     decode_info->tiled = 0;
+    decode_info->source_bpp = 0;
 
     ret = pTIFFGetField(tiff, TIFFTAG_PHOTOMETRIC, &photometric);
     if (!ret)
@@ -504,7 +505,7 @@ static HRESULT tiff_get_decode_info(TIFF *tiff, tiff_decode_info *decode_info)
             break;
         default:
             FIXME("unhandled indexed bit count %u\n", bps);
-            return E_FAIL;
+            return E_NOTIMPL;
         }
         break;
 
@@ -738,20 +739,9 @@ static HRESULT WINAPI TiffDecoder_GetContainerFormat(IWICBitmapDecoder *iface,
 static HRESULT WINAPI TiffDecoder_GetDecoderInfo(IWICBitmapDecoder *iface,
     IWICBitmapDecoderInfo **ppIDecoderInfo)
 {
-    HRESULT hr;
-    IWICComponentInfo *compinfo;
-
     TRACE("(%p,%p)\n", iface, ppIDecoderInfo);
 
-    hr = CreateComponentInfo(&CLSID_WICTiffDecoder, &compinfo);
-    if (FAILED(hr)) return hr;
-
-    hr = IWICComponentInfo_QueryInterface(compinfo, &IID_IWICBitmapDecoderInfo,
-        (void**)ppIDecoderInfo);
-
-    IWICComponentInfo_Release(compinfo);
-
-    return hr;
+    return get_decoder_info(&CLSID_WICTiffDecoder, ppIDecoderInfo);
 }
 
 static HRESULT WINAPI TiffDecoder_CopyPalette(IWICBitmapDecoder *iface,
@@ -847,6 +837,7 @@ static HRESULT WINAPI TiffDecoder_GetFrame(IWICBitmapDecoder *iface,
             result->IWICMetadataBlockReader_iface.lpVtbl = &TiffFrameDecode_BlockVtbl;
             result->ref = 1;
             result->parent = This;
+            IWICBitmapDecoder_AddRef(iface);
             result->index = index;
             result->decode_info = decode_info;
             result->cached_tile_x = -1;
@@ -857,7 +848,7 @@ static HRESULT WINAPI TiffDecoder_GetFrame(IWICBitmapDecoder *iface,
             else
             {
                 hr = E_OUTOFMEMORY;
-                HeapFree(GetProcessHeap(), 0, result);
+                IWICBitmapFrameDecode_Release(&result->IWICBitmapFrameDecode_iface);
             }
         }
         else hr = E_OUTOFMEMORY;
@@ -932,6 +923,7 @@ static ULONG WINAPI TiffFrameDecode_Release(IWICBitmapFrameDecode *iface)
 
     if (ref == 0)
     {
+        IWICBitmapDecoder_Release(&This->parent->IWICBitmapDecoder_iface);
         HeapFree(GetProcessHeap(), 0, This->cached_tile);
         HeapFree(GetProcessHeap(), 0, This);
     }
@@ -1156,32 +1148,44 @@ static HRESULT TiffFrameDecode_ReadTile(TiffFrameDecode *This, UINT tile_x, UINT
 
         HeapFree(GetProcessHeap(), 0, srcdata);
     }
-    /* 4bpp RGBA */
+    /* 4bps RGBA */
     else if (This->decode_info.source_bpp == 4 && This->decode_info.samples == 4 && This->decode_info.bpp == 32)
     {
-        BYTE *src, *dst;
-        DWORD count;
+        BYTE *srcdata, *src, *dst;
+        DWORD x, y, count, width_bytes = (This->decode_info.tile_width * 3 + 7) / 8;
 
-        /* 1 source byte expands to 2 BGRA samples */
-        count = (This->decode_info.tile_width * This->decode_info.tile_height + 1) / 2;
+        count = width_bytes * This->decode_info.tile_height;
 
-        src = This->cached_tile + count - 1;
-        dst = This->cached_tile + This->decode_info.tile_size;
+        srcdata = HeapAlloc(GetProcessHeap(), 0, count);
+        if (!srcdata) return E_OUTOFMEMORY;
+        memcpy(srcdata, This->cached_tile, count);
 
-        while (count--)
+        for (y = 0; y < This->decode_info.tile_height; y++)
         {
-            BYTE b = *src--;
+            src = srcdata + y * width_bytes;
+            dst = This->cached_tile + y * This->decode_info.tile_width * 4;
 
-            dst -= 8;
-            dst[2] = (b & 0x80) ? 0xff : 0; /* R */
-            dst[1] = (b & 0x40) ? 0xff : 0; /* G */
-            dst[0] = (b & 0x20) ? 0xff : 0; /* B */
-            dst[3] = (b & 0x10) ? 0xff : 0; /* A */
-            dst[6] = (b & 0x08) ? 0xff : 0; /* R */
-            dst[5] = (b & 0x04) ? 0xff : 0; /* G */
-            dst[4] = (b & 0x02) ? 0xff : 0; /* B */
-            dst[7] = (b & 0x01) ? 0xff : 0; /* A */
+            /* 1 source byte expands to 2 BGRA samples */
+
+            for (x = 0; x < This->decode_info.tile_width; x += 2)
+            {
+                dst[0] = (src[0] & 0x20) ? 0xff : 0; /* B */
+                dst[1] = (src[0] & 0x40) ? 0xff : 0; /* G */
+                dst[2] = (src[0] & 0x80) ? 0xff : 0; /* R */
+                dst[3] = (src[0] & 0x10) ? 0xff : 0; /* A */
+                if (x + 1 < This->decode_info.tile_width)
+                {
+                    dst[4] = (src[0] & 0x02) ? 0xff : 0; /* B */
+                    dst[5] = (src[0] & 0x04) ? 0xff : 0; /* G */
+                    dst[6] = (src[0] & 0x08) ? 0xff : 0; /* R */
+                    dst[7] = (src[0] & 0x01) ? 0xff : 0; /* A */
+                }
+                src++;
+                dst += 8;
+            }
         }
+
+        HeapFree(GetProcessHeap(), 0, srcdata);
     }
     /* 16bpp RGBA */
     else if (This->decode_info.source_bpp == 16 && This->decode_info.samples == 4 && This->decode_info.bpp == 32)
@@ -1297,7 +1301,7 @@ static HRESULT WINAPI TiffFrameDecode_CopyPixels(IWICBitmapFrameDecode *iface,
     UINT bytesperrow;
     WICRect rect;
 
-    TRACE("(%p,%p,%u,%u,%p)\n", iface, prc, cbStride, cbBufferSize, pbBuffer);
+    TRACE("(%p,%s,%u,%u,%p)\n", iface, debug_wic_rect(prc), cbStride, cbBufferSize, pbBuffer);
 
     if (!prc)
     {
@@ -1319,7 +1323,7 @@ static HRESULT WINAPI TiffFrameDecode_CopyPixels(IWICBitmapFrameDecode *iface,
     if (cbStride < bytesperrow)
         return E_INVALIDARG;
 
-    if ((cbStride * (prc->Height-1)) + ((prc->Width * This->decode_info.bpp) + 7)/8 > cbBufferSize)
+    if ((cbStride * (prc->Height-1)) + bytesperrow > cbBufferSize)
         return E_INVALIDARG;
 
     min_tile_x = prc->X / This->decode_info.tile_width;
@@ -1634,7 +1638,6 @@ static const struct tiff_encode_format formats[] = {
     {&GUID_WICPixelFormat64bppRGBA, 2, 16, 4, 64, 1, 2, 0},
     {&GUID_WICPixelFormat64bppPRGBA, 2, 16, 4, 64, 1, 1, 0},
     {&GUID_WICPixelFormat1bppIndexed, 3, 1, 1, 1, 0, 0, 0},
-    {&GUID_WICPixelFormat2bppIndexed, 3, 2, 1, 2, 0, 0, 0},
     {&GUID_WICPixelFormat4bppIndexed, 3, 4, 1, 4, 0, 0, 0},
     {&GUID_WICPixelFormat8bppIndexed, 3, 8, 1, 8, 0, 0, 0},
     {0}
@@ -1808,9 +1811,12 @@ static HRESULT WINAPI TiffFrameEncode_SetPixelFormat(IWICBitmapFrameEncode *ifac
         return WINCODEC_ERR_WRONGSTATE;
     }
 
+    if (IsEqualGUID(pPixelFormat, &GUID_WICPixelFormat2bppIndexed))
+        *pPixelFormat = GUID_WICPixelFormat4bppIndexed;
+
     for (i=0; formats[i].guid; i++)
     {
-        if (memcmp(formats[i].guid, pPixelFormat, sizeof(GUID)) == 0)
+        if (IsEqualGUID(formats[i].guid, pPixelFormat))
             break;
     }
 
@@ -1972,7 +1978,7 @@ static HRESULT WINAPI TiffFrameEncode_WriteSource(IWICBitmapFrameEncode *iface,
     TiffFrameEncode *This = impl_from_IWICBitmapFrameEncode(iface);
     HRESULT hr;
 
-    TRACE("(%p,%p,%p)\n", iface, pIBitmapSource, prc);
+    TRACE("(%p,%p,%s)\n", iface, pIBitmapSource, debug_wic_rect(prc));
 
     if (!This->initialized)
         return WINCODEC_ERR_WRONGSTATE;
@@ -2128,6 +2134,11 @@ exit:
 static HRESULT WINAPI TiffEncoder_GetContainerFormat(IWICBitmapEncoder *iface,
     GUID *pguidContainerFormat)
 {
+    TRACE("(%p,%p)\n", iface, pguidContainerFormat);
+
+    if (!pguidContainerFormat)
+        return E_INVALIDARG;
+
     memcpy(pguidContainerFormat, &GUID_ContainerFormatTiff, sizeof(GUID));
     return S_OK;
 }
@@ -2213,7 +2224,7 @@ static HRESULT WINAPI TiffEncoder_CreateNewFrame(IWICBitmapEncoder *iface,
 
     if (ppIEncoderOptions && SUCCEEDED(hr))
     {
-        hr = CreatePropertyBag2(opts, sizeof(opts)/sizeof(opts[0]), ppIEncoderOptions);
+        hr = CreatePropertyBag2(opts, ARRAY_SIZE(opts), ppIEncoderOptions);
         if (SUCCEEDED(hr))
         {
             VARIANT v;

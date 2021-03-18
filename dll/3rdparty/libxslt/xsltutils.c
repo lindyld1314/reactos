@@ -1438,7 +1438,7 @@ xsltSaveResultTo(xmlOutputBufferPtr buf, xmlDocPtr result,
 	((style->method == NULL) ||
 	 (!xmlStrEqual(style->method, (const xmlChar *) "xhtml")))) {
         xsltGenericError(xsltGenericErrorContext,
-		"xsltSaveResultTo : unknown ouput method\n");
+		"xsltSaveResultTo : unknown output method\n");
         return(-1);
     }
 
@@ -1554,7 +1554,15 @@ xsltSaveResultTo(xmlOutputBufferPtr buf, xmlDocPtr result,
 	    xmlOutputBufferWriteString(buf, "?>\n");
 	}
 	if (result->children != NULL) {
-	    xmlNodePtr child = result->children;
+            xmlNodePtr children = result->children;
+	    xmlNodePtr child = children;
+
+            /*
+             * Hack to avoid quadratic behavior when scanning
+             * result->children in xmlGetIntSubset called by
+             * xmlNodeDumpOutput.
+             */
+            result->children = NULL;
 
 	    while (child != NULL) {
 		xmlNodeDumpOutput(buf, result, child, 0, (indent == 1),
@@ -1567,6 +1575,8 @@ xsltSaveResultTo(xmlOutputBufferPtr buf, xmlDocPtr result,
 	    }
 	    if (indent)
 			xmlOutputBufferWriteString(buf, "\n");
+
+            result->children = children;
 	}
 	xmlOutputBufferFlush(buf);
     }
@@ -1764,9 +1774,11 @@ xsltSaveResultToString(xmlChar **doc_txt_ptr, int * doc_txt_len,
     return 0;
 }
 
+#ifdef WITH_PROFILER
+
 /************************************************************************
  *									*
- *		Generating profiling informations			*
+ *		Generating profiling information			*
  *									*
  ************************************************************************/
 
@@ -1929,9 +1941,9 @@ pretty_templ_match(xsltTemplatePtr templ) {
 /**
  * xsltSaveProfiling:
  * @ctxt:  an XSLT context
- * @output:  a FILE * for saving the informations
+ * @output:  a FILE * for saving the information
  *
- * Save the profiling informations on @output
+ * Save the profiling information on @output
  */
 void
 xsltSaveProfiling(xsltTransformContextPtr ctxt, FILE *output) {
@@ -2128,7 +2140,7 @@ xsltSaveProfiling(xsltTransformContextPtr ctxt, FILE *output) {
 
 /************************************************************************
  *									*
- *		Fetching profiling informations				*
+ *		Fetching profiling information				*
  *									*
  ************************************************************************/
 
@@ -2137,8 +2149,8 @@ xsltSaveProfiling(xsltTransformContextPtr ctxt, FILE *output) {
  * @ctxt:  a transformation context
  *
  * This function should be called after the transformation completed
- * to extract template processing profiling informations if availble.
- * The informations are returned as an XML document tree like
+ * to extract template processing profiling information if available.
+ * The information is returned as an XML document tree like
  * <?xml version="1.0"?>
  * <profile>
  * <template rank="1" match="*" name=""
@@ -2241,6 +2253,8 @@ xsltGetProfileInformation(xsltTransformContextPtr ctxt)
     return ret;
 }
 
+#endif /* WITH_PROFILER */
+
 /************************************************************************
  *									*
  *		Hooks for libxml2 XPath					*
@@ -2264,25 +2278,7 @@ xsltXPathCompileFlags(xsltStylesheetPtr style, const xmlChar *str, int flags) {
     xmlXPathCompExprPtr ret;
 
     if (style != NULL) {
-#ifdef XSLT_REFACTORED_XPATHCOMP
-	if (XSLT_CCTXT(style)) {
-	    /*
-	    * Proposed by Jerome Pesenti
-	    * --------------------------
-	    * For better efficiency we'll reuse the compilation
-	    * context's XPath context. For the common stylesheet using
-	    * XPath expressions this will reduce compilation time to
-	    * about 50%.
-	    *
-	    * See http://mail.gnome.org/archives/xslt/2006-April/msg00037.html
-	    */
-	    xpathCtxt = XSLT_CCTXT(style)->xpathCtxt;
-	    xpathCtxt->doc = style->doc;
-	} else
-	    xpathCtxt = xmlXPathNewContext(style->doc);
-#else
-	xpathCtxt = xmlXPathNewContext(style->doc);
-#endif
+        xpathCtxt = style->principal->xpathCtxt;
 	if (xpathCtxt == NULL)
 	    return NULL;
 	xpathCtxt->dict = style->dict;
@@ -2298,13 +2294,9 @@ xsltXPathCompileFlags(xsltStylesheetPtr style, const xmlChar *str, int flags) {
     */
     ret = xmlXPathCtxtCompile(xpathCtxt, str);
 
-#ifdef XSLT_REFACTORED_XPATHCOMP
-    if ((style == NULL) || (! XSLT_CCTXT(style))) {
+    if (style == NULL) {
 	xmlXPathFreeContext(xpathCtxt);
     }
-#else
-    xmlXPathFreeContext(xpathCtxt);
-#endif
     /*
      * TODO: there is a lot of optimizations which should be possible
      *       like variable slot precomputations, function precomputations, etc.
@@ -2334,6 +2326,23 @@ xsltXPathCompile(xsltStylesheetPtr style, const xmlChar *str) {
  *									*
  ************************************************************************/
 
+int xslDebugStatus;
+
+/**
+ * xsltGetDebuggerStatus:
+ *
+ * Get xslDebugStatus.
+ *
+ * Returns the value of xslDebugStatus.
+ */
+int
+xsltGetDebuggerStatus(void)
+{
+    return(xslDebugStatus);
+}
+
+#ifdef WITH_DEBUGGER
+
 /*
  * There is currently only 3 debugging callback defined
  * Debugger callbacks are disabled by default
@@ -2354,8 +2363,6 @@ static xsltDebuggerCallbacks xsltDebuggerCurrentCallbacks = {
     NULL  /* drop */
 };
 
-int xslDebugStatus;
-
 /**
  * xsltSetDebuggerStatus:
  * @value : the value to be set
@@ -2366,19 +2373,6 @@ void
 xsltSetDebuggerStatus(int value)
 {
     xslDebugStatus = value;
-}
-
-/**
- * xsltGetDebuggerStatus:
- *
- * Get xslDebugStatus.
- *
- * Returns the value of xslDebugStatus.
- */
-int
-xsltGetDebuggerStatus(void)
-{
-    return(xslDebugStatus);
 }
 
 /**
@@ -2454,4 +2448,6 @@ xslDropCall(void)
     if (xsltDebuggerCurrentCallbacks.drop != NULL)
 	xsltDebuggerCurrentCallbacks.drop();
 }
+
+#endif /* WITH_DEBUGGER */
 

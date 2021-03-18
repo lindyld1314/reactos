@@ -200,17 +200,17 @@ extern PSECURITY_DESCRIPTOR SeUnrestrictedSd;
 #define SepAcquireTokenLockExclusive(Token)                                    \
 {                                                                              \
     KeEnterCriticalRegion();                                                   \
-    ExAcquireResourceExclusive(((PTOKEN)Token)->TokenLock, TRUE);              \
+    ExAcquireResourceExclusiveLite(((PTOKEN)Token)->TokenLock, TRUE);          \
 }
 #define SepAcquireTokenLockShared(Token)                                       \
 {                                                                              \
     KeEnterCriticalRegion();                                                   \
-    ExAcquireResourceShared(((PTOKEN)Token)->TokenLock, TRUE);                 \
+    ExAcquireResourceSharedLite(((PTOKEN)Token)->TokenLock, TRUE);             \
 }
 
 #define SepReleaseTokenLock(Token)                                             \
 {                                                                              \
-    ExReleaseResource(((PTOKEN)Token)->TokenLock);                             \
+    ExReleaseResourceLite(((PTOKEN)Token)->TokenLock);                         \
     KeLeaveCriticalRegion();                                                   \
 }
 
@@ -246,10 +246,6 @@ SepSidInTokenEx(
 BOOLEAN
 NTAPI
 SeInitSystem(VOID);
-
-VOID
-NTAPI
-ExpInitLuid(VOID);
 
 VOID
 NTAPI
@@ -316,10 +312,17 @@ SeIsTokenChild(
 
 NTSTATUS
 NTAPI
+SeIsTokenSibling(
+    IN PTOKEN Token,
+    OUT PBOOLEAN IsSibling
+);
+
+NTSTATUS
+NTAPI
 SepCreateImpersonationTokenDacl(
-    PTOKEN Token,
-    PTOKEN PrimaryToken,
-    PACL *Dacl
+    _In_ PTOKEN Token,
+    _In_ PTOKEN PrimaryToken,
+    _Out_ PACL* Dacl
 );
 
 VOID
@@ -345,9 +348,9 @@ SeAuditProcessCreate(IN PEPROCESS Process);
 NTSTATUS
 NTAPI
 SeExchangePrimaryToken(
-    struct _EPROCESS* Process,
-    PACCESS_TOKEN NewToken,
-    PACCESS_TOKEN* OldTokenP
+    _In_ PEPROCESS Process,
+    _In_ PACCESS_TOKEN NewAccessToken,
+    _Out_ PACCESS_TOKEN* OldAccessToken
 );
 
 VOID
@@ -412,13 +415,13 @@ SeCheckPrivilegedObject(
 NTSTATUS
 NTAPI
 SepDuplicateToken(
-    PTOKEN Token,
-    POBJECT_ATTRIBUTES ObjectAttributes,
-    BOOLEAN EffectiveOnly,
-    TOKEN_TYPE TokenType,
-    SECURITY_IMPERSONATION_LEVEL Level,
-    KPROCESSOR_MODE PreviousMode,
-    PTOKEN* NewAccessToken
+    _In_ PTOKEN Token,
+    _In_opt_ POBJECT_ATTRIBUTES ObjectAttributes,
+    _In_ BOOLEAN EffectiveOnly,
+    _In_ TOKEN_TYPE TokenType,
+    _In_ SECURITY_IMPERSONATION_LEVEL Level,
+    _In_ KPROCESSOR_MODE PreviousMode,
+    _Out_ PTOKEN* NewAccessToken
 );
 
 NTSTATUS
@@ -477,6 +480,12 @@ SeReleaseSidAndAttributesArray(
     _In_ _Post_invalid_ PSID_AND_ATTRIBUTES CapturedSidAndAttributes,
     _In_ KPROCESSOR_MODE AccessMode,
     _In_ BOOLEAN CaptureIfKernel);
+
+NTSTATUS
+NTAPI
+SeComputeQuotaInformationSize(
+    _In_ PSECURITY_DESCRIPTOR SecurityDescriptor,
+    _Out_ PULONG QuotaInfoSize);
 
 NTSTATUS
 NTAPI
@@ -588,6 +597,12 @@ SepRmReferenceLogonSession(
 NTSTATUS
 SepRmDereferenceLogonSession(
     PLUID LogonLuid);
+
+NTSTATUS
+NTAPI
+SeGetLogonIdDeviceMap(
+    IN PLUID LogonId,
+    OUT PDEVICE_MAP * DeviceMap);
 
 #endif
 

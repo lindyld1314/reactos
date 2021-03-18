@@ -10,11 +10,26 @@
 
 #include <stdlib.h>
 
-#ifdef _MSC_VER
+#ifdef __clang__
+#define _rotl __function_rotl
+#define _rotr __function_rotr
+#define _lrotl __function_lrotl
+#define _lrotr __function_lrotr
+#elif defined(_MSC_VER)
 #pragma function(_rotr, _rotl, _rotr, _lrotl, _lrotr)
 #endif
 
-unsigned int _rotr( unsigned int value, int shift );
+#if defined (__clang__) && !defined(_MSC_VER)
+#define ASM_ALIAS __asm__
+#else
+#define ASM_ALIAS(x)
+#endif
+
+unsigned int _rotr( unsigned int value, int shift ) ASM_ALIAS("__rotr");
+unsigned long _lrotr(unsigned long value, int shift) ASM_ALIAS("__lrotr");
+unsigned int _rotl( unsigned int value, int shift ) ASM_ALIAS("__rotl");
+unsigned long _lrotl( unsigned long value, int shift ) ASM_ALIAS("__lrotl");
+
 /*
  * @implemented
  */
@@ -42,7 +57,6 @@ unsigned int _rotr( unsigned int value, int shift )
 		shift = shift % max_bits;
 	return (value >> shift) | (value <<  (max_bits-shift));
 }
-
 
 /*
  * @implemented

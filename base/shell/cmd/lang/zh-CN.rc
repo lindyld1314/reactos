@@ -1,4 +1,5 @@
 /* Simplified Chinese translation by Song Fuchang (0xfc) <sfc_0@yahoo.com.cn> 2011 */
+/* Improved by He Yang (@kernel.bin) <1160386205@qq.com> 2020 */
 
 LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
 
@@ -11,18 +12,6 @@ assoc (输出所有文件关联)\n\
 assoc .ext (输出指定的文件关联)\n\
 assoc .ext= (删除指定的文件关联)\n\
 assoc .ext=文件类型 (添加新的文件关联)\n"
-    STRING_ATTRIB_HELP "显示或更改文件属性。\n\n\
-ATTRIB [+R | -R] [+A | -A] [+S | -S] [+H | -H] 文件 ...\n\
-       [/S [/D]]\n\n\
-  +   设置一个属性\n\
-  -   清除一个属性\n\
-  R   只读属性\n\
-  A   归档属性\n\
-  S   系统属性\n\
-  H   隐藏属性\n\
-  /S  处理当前目录和所有子目录下的所有匹配文件\n\
-  /D  同时处理目录\n\n\
-执行不带参数的 ATTRIB 将会显示所有文件的属性。\n"
     STRING_ALIAS_HELP "设置、删除或显示别名。\n\n\
 ALIAS [别名=[命令]]\n\n\
   别名    别名的名称。\n\
@@ -36,7 +25,7 @@ ALIAS [别名=[命令]]\n\n\
     STRING_BEEP_HELP "使扬声器发出BEEP声。\n\nBEEP\n"
     STRING_CALL_HELP "从一个批处理程序调用另一个。\n\n\
 CALL [驱动器:][路径]文件名 [批处理参数]\n\n\
-  批处理参数  指定被调用的批处理程序所需的命令行信息。"
+  批处理参数  指定被调用的批处理程序所需的命令行信息。\n"
     STRING_CD_HELP "改变当前目录或者显示当前目录名。\n\n\
 CHDIR [/D][驱动器:][路径]\n\
 CHDIR[..|.]\n\
@@ -79,14 +68,14 @@ COLOR [属性 [/-F]]\n\n\
 3) 两位十六进制数\n\n\
 颜色列表：\n\
 dec  hex  名称         dec  hex  名称\n\
-0    0    Black       8   8    Gray(Bright black)\n\
-1    1    Blue        9   9    Bright Blue\n\
-2    2    Green      10   A    Bright Green\n\
-3    3    Cyan       11   B    Bright Cyan\n\
-4    4    Red        12   C    Bright Red\n\
-5    5    Magenta    13   D    Bright Magenta\n\
-6    6    Yellow     14   E    Bright Yellow\n\
-7    7    White      15   F    Bright White\n"
+0    0    黑色         8    8    灰色\n\
+1    1    蓝色         9    9    淡蓝色\n\
+2    2    绿色        10    A    淡绿色\n\
+3    3    浅绿色      11    B    淡浅绿色\n\
+4    4    红色        12    C    淡红色\n\
+5    5    紫色        13    D    淡紫色\n\
+6    6    黄色        14    E    淡黄色\n\
+7    7    白色        15    F    亮白色\n"
     STRING_COPY_HELP1 "覆盖 %s 吗 (Yes/No/All)? "
     STRING_COPY_HELP2 "将一个或多个文件复制到另一个位置。\n\n\
 COPY [/V][/Y|/-Y][/A|/B] 源 [/A|/B]\n\
@@ -100,13 +89,13 @@ COPY [/V][/Y|/-Y][/A|/B] 源 [/A|/B]\n\
   /-Y            覆盖一个已存在的文件时请求确认。\n\n\
 /Y 开关也可以在 COPYCMD 环境变量中指定。\n\
 ...\n"
-    STRING_CTTY_HELP "Changes the standard I/O terminal device to an auxiliary device.\n\n\
+    STRING_CTTY_HELP "将标准 I/O 终端设备改为一个外置设备。\n\n\
 CTTY device\n\n\
-  device    The terminal device you want to use as the new standard I/O device.\n\
-            This name must refer to a valid character device:\n\
+  device    新的标准 I/O 终端设备名。\n\
+            该名称必须是一个有效的设备名：\n\
             AUX, COMx (x=1..N), CON, LPTx (x=1..N), PRN, NUL.\n\
-            CON is usually the default standard I/O device.\n\n\
-To return control to the standard console, type: CTTY CON on the auxiliary\n\
+            CON 一般是默认的标准 I/O 设备名。\n\n\
+想要把控制权交还给默认终端，在外置设备上输入：CTTY CON\n\
 device."
     STRING_DATE_HELP1 "\n输入新的日期 (mm%cdd%cyyyy)："
     STRING_DATE_HELP2 "\n输入新的日期 (dd%cmm%cyyyy)："
@@ -160,7 +149,7 @@ DELAY [/m]n\n\n\
                G  分组目录在前                    -  反转顺序的前缀\n\
   /P          在每屏幕信息输出后停顿。\n\
   /Q          显示文件的所有者。\n\
-  /R          Displays alternate data streams of the files.\n\
+  /R          显示文件的交换数据流。\n\
   /S          显示指定目录和所有子目录中的文件。\n\
   /T          控制要显示或者用于排序的时间字段。\n\
   时间字段    C  创建时间\n\
@@ -196,7 +185,7 @@ PUSHD [路径 | ..]\n\n\
   ECHO [消息]\n\
   ECHO.             输出空行\n\n\
 执行不带参数的 ECHO 将会显示当前的 ECHO 设置。"
-    STRING_ECHO_HELP5 "ECHO 为 %s\n"
+    STRING_ECHO_HELP5 "ECHO 为 %s。\n"
     STRING_EXIT_HELP "退出命令行解释器。\n\nEXIT [/b] [ExitCode]\n\n\
   /B            仅退出一个批处理文件。\n\
                 如果在一个批处理文件之外运行，将会使 cmd.exe 退出。\n\
@@ -230,7 +219,7 @@ f,d,p,n,x,s,a,t,z.\n\n\
     STRING_GOTO_HELP1 "在批处理脚本中将 CMD 定向到被标记的行执行。\n\n\
 GOTO 标签\n\n\
   标签    在批处理脚本中被用作标签的文本字符串。\n\n\
-使用冒号开头的一行就作为一个标签。"
+使用冒号开头的一行就作为一个标签。\n"
     STRING_IF_HELP1 "在批处理文件中执行条件控制处理。\n\n\
   IF [NOT] ERRORLEVEL 数字 命令\n\
   IF [NOT] 字符串1==字符串2 命令\n\
@@ -242,11 +231,6 @@ ERRORLEVEL 数字    当上一个程序返回一个大于或等于指定数字�
 字符串1==字符串2   当所指定的字符串相匹配时为真。\n\
 EXIST 文件名       当指定的文件名存在时为真。\n\
 DEFINED 变量       当指定的变量已被定义时为真。\n"
-    STRING_LABEL_HELP1 "显示或改变驱动器卷标。\n\nLABEL [驱动器:][卷标]\n"
-    STRING_LABEL_HELP2 "驱动器 %c 中的卷是 %s\n"
-    STRING_LABEL_HELP3 "驱动器 %c 中的卷没有卷标。\n"
-    STRING_LABEL_HELP4 "卷的序列号是 %04X-%04X\n"
-    STRING_LABEL_HELP5 "驱动器卷标 (11 个字符, 按 ENTER 忽略)? "
     STRING_LOCALE_HELP1 "当前时间是"
     STRING_MKDIR_HELP "创建一个目录。\n\n\
 MKDIR [驱动器:]路径\nMD [驱动器:]路径"
@@ -268,9 +252,9 @@ MKLINK [/D | /H | /J] 链接名 目标\n\n\
     STRING_MOVE_HELP1 "覆盖 %s 吗 (Yes/No/All)？"
     STRING_MOVE_HELP2 "移动文件并重命名文件和目录。\n\n\
 移动一个或多个文件：\n\
-MOVE [/N][驱动器:][路径]文件名1[,...] 目标\n\n\
+MOVE [/N][/Y|/-Y][驱动器:][路径]文件名1[,...] 目标\n\n\
 重命名一个目录：\n\
-MOVE [/N][驱动器:][路径]目录名1 目录名2\n\n\
+MOVE [/N][/Y|/-Y][驱动器:][路径]目录名1 目录名2\n\n\
   [驱动器:][路径]文件名1     指定你想要移动的一个或多个文件的位置和名称。\n\
   /N                    执行除移动文件或目录之外的所有事情。\n\n\
 当前限制：\n\
@@ -289,6 +273,9 @@ OK   :  10    |  CANCEL  :  12\n"
 PATH [[驱动器:]路径[;...]]\nPATH ;\n\n\
 执行 PATH ; 以清除所有的搜索路径设置并指示命令行外壳仅在当前目录搜索。\n\
 不带参数执行 PATH 将会显示当前路径。\n"
+    STRING_PAUSE_HELP1 "停止一个批处理文件的执行并显示以下信息：\n\
+'按任意键继续...' 或者一条用户定义的消息。\n\n\
+PAUSE [消息]"
     STRING_PROMPT_HELP1 "改变命令提示符。\n\n\
 PROMPT [文本]\n\n\
   文本      指定新的命令提示符。\n\n\
@@ -311,16 +298,13 @@ PROMPT [文本]\n\n\
   $V   操作系统版本号\n\
   $_    回车和换行符\n\
   $$   $ (美元符号)\n"
-    STRING_PAUSE_HELP1 "停止一个批处理文件的执行并显示以下信息：\n\
-'按任意键继续...' 或者一条用户定义的消息。\n\n\
-PAUSE [消息]"
     STRING_PROMPT_HELP2 "  $+   显示当前目录栈的深度"
     STRING_PROMPT_HELP3 "\n执行不带参数的 PROMPT 将会把提示符重置为默认设置。"
     STRING_REM_HELP "在批处理文件中开始一行注释。\n\nREM [注释]"
     STRING_RMDIR_HELP "删除一个目录。\n\n\
-RMDIR [驱动器:]路径\nRD [驱动器:]路径\n\
-/S          删除目标中的所有文件和文件夹。\n\
-/Q          删除时不要提示。\n"
+RMDIR [/S] [/Q] [驱动器:]路径\nRD [/S] [/Q] [驱动器:]路径\n\
+  /S    删除目标中的所有文件和文件夹。\n\
+  /Q    删除时不要提示。\n"
     STRING_RMDIR_HELP2 "目录非空！\n"
     STRING_REN_HELP1 "重命名一个或者多个文件或文件夹。\n\n\
 RENAME [/E /N /P /Q /S /T] 旧名称 ... 新名称\n\
@@ -401,7 +385,7 @@ TIMER  [ON|OFF] [/S] [/n] [/Fn]\n\n\
                     0    毫秒\n\
                     1    hh%cmm%css%cdd\n\n\
 如果没有 ON，OFF 或者 /S 在调用该命令时被指定，将会切换停表状态。\n\n"
-    STRING_TYPE_HELP1 "显示文本文件的内容。\n\nTYPE [驱动器:][路径]文件名 \n\
+    STRING_TYPE_HELP1 "显示文本文件的内容。\n\nTYPE [驱动器:][路径]文件名\n\
   /P          每次只显示一屏内容。\n"
     STRING_VERIFY_HELP1 "这条命令只是个摆设！！\n\
 设置是否检查您的文件已被正确地写入磁盘。\n\n\
@@ -455,9 +439,9 @@ RESTORE       恢复窗口\n\
     STRING_ALIAS_ERROR "别名展开后的命令行太长！\n"
     STRING_ASSOC_ERROR "扩展名 %s 的文件关联未找到！\n"
     STRING_BATCH_ERROR "打开批处理文件时出错\n"
-    STRING_CHOICE_ERROR "无效选项。期望的格式：/C[:]选项"
-    STRING_CHOICE_ERROR_TXT "无效选项。期望的格式：/T[:]c,nn"
-    STRING_CHOICE_ERROR_OPTION "非法选项：%s"
+    STRING_CHOICE_ERROR "无效选项。期望的格式：/C[:]选项\n"
+    STRING_CHOICE_ERROR_TXT "无效选项。期望的格式：/T[:]c,nn\n"
+    STRING_CHOICE_ERROR_OPTION "非法选项：%s\n"
     STRING_CMD_ERROR1 "无法从文件 %s 重定向输入\n"
     STRING_CMD_ERROR2 "为管道数据创建临时文件时出错\n"
     STRING_CMD_ERROR3 "无法重定向到文件 %s\n"
@@ -482,9 +466,9 @@ RESTORE       恢复窗口\n\
     STRING_FOR_ERROR4 "'do' 后没有命令。"
     STRING_FREE_ERROR1 "无效驱动器"
     STRING_FREE_ERROR2 "未标记"
-    STRING_GOTO_ERROR1 "没有为 GOTO 指定标签"
+    STRING_GOTO_ERROR1 "没有为 GOTO 指定标签\n"
     STRING_GOTO_ERROR2 "标签 '%s' 未找到\n"
-    STRING_MD_ERROR "一个子目录或文件已存在。\n"
+    STRING_MD_ERROR "%s 一个子目录或文件已存在。\n"
     STRING_MD_ERROR2 "到新文件夹的路径不存在。\n"
     STRING_MOVE_ERROR1 "[成功]\n"
     STRING_MOVE_ERROR2 "[错误]\n"
@@ -503,9 +487,9 @@ RESTORE       恢复窗口\n\
     STRING_ERROR_BADCOMMAND "非法的命令或文件名 - %s\n"
     STRING_ERROR_OUT_OF_MEMORY "内存不足。\n"
     STRING_ERROR_CANNOTPIPE "错误！无法创建管道！不能打开临时文件！\n"
-    STRING_ERROR_D_PAUSEMSG "按任意键继续..."
+    STRING_ERROR_D_PAUSEMSG "按任意键继续... "
     STRING_ERROR_DRIVER_NOT_READY "驱动器未就绪"
-    STRING_PATH_ERROR "CMD: 不在环境 '%s' 中\n"
+    STRING_SET_ENV_ERROR "Environment variable '%s' is not defined\n"
     STRING_REPLACE_ERROR1 "无效开关 - %s\n"
     STRING_REPLACE_ERROR2 "路径未找到 - %s\n"
     STRING_REPLACE_ERROR3 "文件名、目录名或卷标语法不正确。\n"
@@ -514,7 +498,7 @@ RESTORE       恢复窗口\n\
     STRING_REPLACE_ERROR6 "没有文件被发现 - %s\n"
     STRING_REPLACE_ERROR7 "扩展错误 32\n"
     STRING_CMD_INFOLINE "  ReactOS 命令行解释器                                       输入 HELP = 帮助  "
-    STRING_REACTOS_VERSION "ReactOS 操作系统 [版本 %s %s]\n"
+    STRING_REACTOS_VERSION "ReactOS [版本 %s %s]\n"
     STRING_CMD_SHELLINFO "\nReactOS 命令行解释器\n版本 %s %s"
     STRING_VERSION_RUNNING_ON "在 上运行"
     STRING_VERSION_RUNVER "%s [Version %d.%d.%d] %s"
@@ -529,8 +513,8 @@ RESTORE       恢复窗口\n\
     STRING_MKLINK_CREATED_JUNCTION "已为 %s <<===>> %s 创建接合点\n"
     STRING_MORE "更多？"
     STRING_CANCEL_BATCH_FILE "\r\nCtrl-Break 已被按下。停止批处理文件吗？ (Yes/No/All) "
-    STRING_INVALID_OPERAND "无效操作数。"
-    STRING_EXPECTED_CLOSE_PAREN "期望 ')'。"
-    STRING_EXPECTED_NUMBER_OR_VARIABLE "期望数值或变量名。"
-    STRING_SYNTAX_COMMAND_INCORRECT "命令语法不正确。"
+    STRING_INVALID_OPERAND "无效操作数。\n"
+    STRING_EXPECTED_CLOSE_PAREN "期望 ')'。\n"
+    STRING_EXPECTED_NUMBER_OR_VARIABLE "期望数值或变量名。\n"
+    STRING_SYNTAX_COMMAND_INCORRECT "命令语法不正确。\n"
 END

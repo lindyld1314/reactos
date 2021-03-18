@@ -13,10 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, MmInitGlobalKernelPageDirectory)
-#endif
-
 /* GLOBALS *****************************************************************/
 
 #define PA_BIT_PRESENT   (0)
@@ -1492,8 +1488,8 @@ MmSetPageProtect(PEPROCESS Process, PVOID Address, ULONG flProtect)
    }
 }
 
+CODE_SEG("INIT")
 VOID
-INIT_FUNCTION
 NTAPI
 MmInitGlobalKernelPageDirectory(VOID)
 {

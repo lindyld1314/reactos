@@ -13,10 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, ExpInitializeEventImplementation)
-#endif
-
 /* GLOBALS *******************************************************************/
 
 POBJECT_TYPE ExEventObjectType = NULL;
@@ -37,8 +33,8 @@ static const INFORMATION_CLASS_INFO ExEventInfoClass[] =
 
 /* FUNCTIONS *****************************************************************/
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ExpInitializeEventImplementation(VOID)
 {

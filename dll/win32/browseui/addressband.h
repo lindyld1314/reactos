@@ -43,7 +43,6 @@ private:
     bool                                    fGoButtonShown;
     HIMAGELIST                              m_himlNormal;
     HIMAGELIST                              m_himlHot;
-    INT                                     fAdjustNeeded;
 
 public:
     CAddressBand();
@@ -109,7 +108,7 @@ public:
 
     BEGIN_MSG_MAP(CAddressBand)
         NOTIFY_CODE_HANDLER(NM_CLICK, OnNotifyClick)
-        NOTIFY_CODE_HANDLER(TTN_NEEDTEXTW, OnTipText)
+        NOTIFY_CODE_HANDLER(TBN_GETINFOTIP, OnTipText)
         MESSAGE_HANDLER(WM_ERASEBKGND, OnEraseBackground)
         MESSAGE_HANDLER(WM_SIZE, OnSize)
         MESSAGE_HANDLER(WM_WINDOWPOSCHANGING, OnWindowPosChanging)

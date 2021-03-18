@@ -34,11 +34,17 @@
 #include "winuser.h"
 #include "winnls.h"
 #include "commctrl.h"
+#include "windowsx.h"
+
+#ifdef __REACTOS__
+// This is really ComCtl32 v5.82, the last one not supporting SxS
+#undef  COMCTL32_VERSION // Undefines what the PSDK gave to us
+#define COMCTL32_VERSION        5
+#define COMCTL32_VERSION_MINOR 82
+#endif
 
 extern HMODULE COMCTL32_hModule DECLSPEC_HIDDEN;
 extern HBRUSH  COMCTL32_hPattern55AABrush DECLSPEC_HIDDEN;
-
-#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 
 /* Property sheet / Wizard */
 #define IDD_PROPSHEET 1006
@@ -149,6 +155,7 @@ typedef struct
    INT            fixedOwnerDrawHeight;
    INT            droppedWidth;   /* last two are not used unless set */
    INT            editHeight;     /* explicitly */
+   INT            visibleItems;
 } HEADCOMBO, *LPHEADCOMBO;
 
 extern BOOL COMBO_FlipListbox(HEADCOMBO *lphc, BOOL ok, BOOL bRedrawButton) DECLSPEC_HIDDEN;
@@ -188,7 +195,9 @@ INT  Str_GetPtrAtoW (LPCSTR lpSrc, LPWSTR lpDest, INT nMaxLen) DECLSPEC_HIDDEN;
 BOOL Str_SetPtrAtoW (LPWSTR *lppDest, LPCSTR lpSrc) DECLSPEC_HIDDEN;
 BOOL Str_SetPtrWtoA (LPSTR *lppDest, LPCWSTR lpSrc) DECLSPEC_HIDDEN;
 
+#ifndef __REACTOS__
 #define COMCTL32_VERSION_MINOR 81
+#endif
 
 /* Our internal stack structure of the window procedures to subclass */
 typedef struct _SUBCLASSPROCS {
@@ -270,7 +279,12 @@ extern void TREEVIEW_Unregister(void) DECLSPEC_HIDDEN;
 extern void UPDOWN_Register(void) DECLSPEC_HIDDEN;
 extern void UPDOWN_Unregister(void) DECLSPEC_HIDDEN;
 #ifdef __REACTOS__
-extern void BUTTON_Unregister();
+extern void BUTTON_Unregister(void) DECLSPEC_HIDDEN;
+extern void COMBO_Unregister(void) DECLSPEC_HIDDEN;
+extern void COMBOLBOX_Unregister(void) DECLSPEC_HIDDEN;
+extern void EDIT_Unregister(void) DECLSPEC_HIDDEN;
+extern void LISTBOX_Unregister(void) DECLSPEC_HIDDEN;
+extern void STATIC_Unregister(void) DECLSPEC_HIDDEN;
 extern void TOOLBARv6_Register(void) DECLSPEC_HIDDEN;
 extern void TOOLBARv6_Unregister(void) DECLSPEC_HIDDEN;
 #endif /* __REACTOS__ */

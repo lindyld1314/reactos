@@ -9,7 +9,8 @@ add_definitions(
     -Dread=_read
     -Dstrdup=_strdup
     -D_CRT_NONSTDC_NO_DEPRECATE
-    -D_DLL -D__USE_CRTIMP)
+    -D_DLL -D__USE_CRTIMP
+    -D_CRT_NO_POSIX_ERROR_CODES)
 
 include_directories(BEFORE ${REACTOS_SOURCE_DIR}/sdk/include/reactos/libs/libmpg123)
 
@@ -38,9 +39,14 @@ list(APPEND SOURCE
     synth_8bit.c
     synth_real.c
     synth_s32.c
-    tabinit.c
-    precomp.h)
+    tabinit.c)
 
-add_library(libmpg123 ${SOURCE} optimize.c)
+list(APPEND PCH_SKIP_SOURCE
+    optimize.c)
+
+add_library(libmpg123
+    ${SOURCE}
+    ${PCH_SKIP_SOURCE})
+
 add_dependencies(libmpg123 psdk)
-add_pch(libmpg123 precomp.h SOURCE)
+add_pch(libmpg123 precomp.h "${PCH_SKIP_SOURCE}")

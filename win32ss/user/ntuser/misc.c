@@ -9,6 +9,30 @@
 #include <win32k.h>
 DBG_DEFAULT_CHANNEL(UserMisc);
 
+
+/*
+ * NOTE: _scwprintf() is NOT exported by ntoskrnl.exe,
+ * only _vscwprintf() is, so we need to implement it here.
+ * Code comes from sdk/lib/crt/printf/_scwprintf.c .
+ * See also win32ss/user/winsrv/usersrv/harderror.c .
+ */
+int
+__cdecl
+_scwprintf(
+    const wchar_t *format,
+    ...)
+{
+    int len;
+    va_list args;
+
+    va_start(args, format);
+    len = _vscwprintf(format, args);
+    va_end(args);
+
+    return len;
+}
+
+
 /*
  * Test the Thread to verify and validate it. Hard to the core tests are required.
  */
@@ -67,7 +91,7 @@ UserGetLanguageToggle(VOID)
     return dwValue;
 }
 
-SHORT
+USHORT
 FASTCALL
 UserGetLanguageID(VOID)
 {
@@ -113,7 +137,7 @@ UserGetLanguageID(VOID)
     ZwClose(KeyHandle);
   }
   TRACE("Language ID = %x\n",Ret);
-  return (SHORT) Ret;
+  return (USHORT) Ret;
 }
 
 HBRUSH
@@ -271,13 +295,10 @@ NtUserGetThreadState(
       case THREADSTATE_UPTIMELASTREAD:
          {
            PTHREADINFO pti;
-           LARGE_INTEGER LargeTickCount;
            pti = PsGetCurrentThreadWin32Thread();
-           KeQueryTickCount(&LargeTickCount);
-           pti->timeLast = LargeTickCount.u.LowPart;
-           pti->pcti->tickLastMsgChecked = LargeTickCount.u.LowPart;
+           pti->pcti->timeLastRead = EngGetTickCount32();
+           break;
          }
-         break;
 
       case THREADSTATE_GETINPUTSTATE:
          ret = LOWORD(IntGetQueueStatus(QS_POSTMESSAGE|QS_TIMER|QS_PAINT|QS_SENDMESSAGE|QS_INPUT)) & (QS_KEY | QS_MOUSEBUTTON);
@@ -356,8 +377,7 @@ NtUserGetGUIThreadInfo(
    GUITHREADINFO SafeGui;
    PDESKTOP Desktop;
    PUSER_MESSAGE_QUEUE MsgQueue;
-   PTHREADINFO W32Thread;
-   PETHREAD Thread = NULL;
+   PTHREADINFO W32Thread, pti;
 
    DECLARE_RETURN(BOOLEAN);
 
@@ -379,23 +399,26 @@ NtUserGetGUIThreadInfo(
 
    if (idThread)
    {
-      Status = PsLookupThreadByThreadId((HANDLE)(DWORD_PTR)idThread, &Thread);
-      if(!NT_SUCCESS(Status))
+      pti = PsGetCurrentThreadWin32Thread();
+
+      // Validate Tread ID
+      W32Thread = IntTID2PTI((HANDLE)(DWORD_PTR)idThread);
+
+      if ( !W32Thread )
       {
-         EngSetLastError(ERROR_ACCESS_DENIED);
-         RETURN( FALSE);
+          EngSetLastError(ERROR_ACCESS_DENIED);
+          RETURN( FALSE);
       }
-      W32Thread = (PTHREADINFO)Thread->Tcb.Win32Thread;
+
       Desktop = W32Thread->rpdesk;
 
-      if (!Thread || !Desktop )
+      // Check Desktop and it must be the same as current.
+      if ( !Desktop || Desktop != pti->rpdesk )
       {
-        if(Thread)
-           ObDereferenceObject(Thread);
-        EngSetLastError(ERROR_ACCESS_DENIED);
-        RETURN( FALSE);
+          EngSetLastError(ERROR_ACCESS_DENIED);
+          RETURN( FALSE);
       }
-      
+
       if ( W32Thread->MessageQueue )
         MsgQueue = W32Thread->MessageQueue;
       else
@@ -458,9 +481,6 @@ NtUserGetGUIThreadInfo(
    SafeGui.rcCaret.top = CaretInfo->Pos.y;
    SafeGui.rcCaret.right = SafeGui.rcCaret.left + CaretInfo->Size.cx;
    SafeGui.rcCaret.bottom = SafeGui.rcCaret.top + CaretInfo->Size.cy;
-
-   if (idThread)
-      ObDereferenceObject(Thread);
 
    Status = MmCopyToCaller(lpgui, &SafeGui, sizeof(GUITHREADINFO));
    if(!NT_SUCCESS(Status))
@@ -703,8 +723,8 @@ void UserDbgAssertThreadInfo(BOOL showCaller)
     ASSERT(pci->ulClientDelta == DesktopHeapGetUserDelta());
     if (pti->pcti && pci->pDeskInfo)
         ASSERT(pci->pClientThreadInfo == (PVOID)((ULONG_PTR)pti->pcti - pci->ulClientDelta));
-    if (pti->pcti && IsListEmpty(&pti->SentMessagesListHead))
-        ASSERT((pti->pcti->fsChangeBits & QS_SENDMESSAGE) == 0);
+    //if (pti->pcti && IsListEmpty(&pti->SentMessagesListHead))
+    //    ASSERT((pti->pcti->fsChangeBits & QS_SENDMESSAGE) == 0);
     if (pti->KeyboardLayout)
         ASSERT(pci->hKL == pti->KeyboardLayout->hkl);
     if(pti->rpdesk != NULL)
@@ -760,6 +780,57 @@ GetW32ThreadInfo(VOID)
 {
     UserDbgAssertThreadInfo(TRUE);
     return (PTHREADINFO)PsGetCurrentThreadWin32Thread();
+}
+
+
+NTSTATUS
+GetProcessLuid(
+    IN PETHREAD Thread OPTIONAL,
+    IN PEPROCESS Process OPTIONAL,
+    OUT PLUID Luid)
+{
+    NTSTATUS Status;
+    PACCESS_TOKEN Token = NULL;
+    SECURITY_IMPERSONATION_LEVEL ImpersonationLevel;
+    BOOLEAN CopyOnOpen, EffectiveOnly;
+
+    if (Thread && Process)
+        return STATUS_INVALID_PARAMETER;
+
+    /* If nothing has been specified, use the current thread */
+    if (!Thread && !Process)
+        Thread = PsGetCurrentThread();
+
+    if (Thread)
+    {
+        /* Use a thread token */
+        ASSERT(!Process);
+        Token = PsReferenceImpersonationToken(Thread,
+                                              &CopyOnOpen,
+                                              &EffectiveOnly,
+                                              &ImpersonationLevel);
+
+        /* If we don't have a thread token, use a process token */
+        if (!Token)
+            Process = PsGetThreadProcess(Thread);
+    }
+    if (!Token && Process)
+    {
+        /* Use a process token */
+        Token = PsReferencePrimaryToken(Process);
+
+        /* If we don't have a token, fail */
+        if (!Token)
+            return STATUS_NO_TOKEN;
+    }
+    ASSERT(Token);
+
+    /* Query the LUID */
+    Status = SeQueryAuthenticationIdToken(Token, Luid);
+
+    /* Get rid of the token and return */
+    ObDereferenceObject(Token);
+    return Status;
 }
 
 /* EOF */

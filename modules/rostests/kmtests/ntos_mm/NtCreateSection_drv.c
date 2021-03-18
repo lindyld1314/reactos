@@ -256,7 +256,7 @@ TestIrpHandler(
         {
             DPRINT1("Init\n");
 
-            CcInitializeCacheMap(IoStack->FileObject, 
+            CcInitializeCacheMap(IoStack->FileObject,
                                  (PCC_FILE_SIZES)&Fcb->Header.AllocationSize,
                                  FALSE, &Callbacks, NULL);
         }
@@ -299,7 +299,7 @@ TestIrpHandler(
                     {
                         DPRINT1("Init\n");
                         ok_eq_ulong(RtlCompareUnicodeString(&IoStack->FileObject->FileName, &InitOnRW, FALSE), 0);
-                        CcInitializeCacheMap(IoStack->FileObject, 
+                        CcInitializeCacheMap(IoStack->FileObject,
                                              (PCC_FILE_SIZES)&Fcb->Header.AllocationSize,
                                              FALSE, &Callbacks, Fcb);
                     }
@@ -413,13 +413,16 @@ TestIrpHandler(
     {
         Fcb = IoStack->FileObject->FsContext;
         ok(Fcb != NULL, "Null pointer!\n");
-        if (IoStack->FileObject->SectionObjectPointer != NULL &&
-            IoStack->FileObject->SectionObjectPointer->SharedCacheMap != NULL)
+        if (IoStack->FileObject->SectionObjectPointer != NULL)
         {
             LARGE_INTEGER Zero = RTL_CONSTANT_LARGE_INTEGER(0LL);
 
-            CcFlushCache(&Fcb->SectionObjectPointers, NULL, 0, NULL);
-            CcPurgeCacheSection(&Fcb->SectionObjectPointers, NULL, 0, FALSE);
+            if (IoStack->FileObject->SectionObjectPointer->DataSectionObject)
+            {
+                CcFlushCache(&Fcb->SectionObjectPointers, NULL, 0, NULL);
+                CcPurgeCacheSection(&Fcb->SectionObjectPointers, NULL, 0, FALSE);
+            }
+
             KeInitializeEvent(&CacheUninitEvent.Event, NotificationEvent, FALSE);
             CcUninitializeCacheMap(IoStack->FileObject, &Zero, &CacheUninitEvent);
             KeWaitForSingleObject(&CacheUninitEvent.Event, Executive, KernelMode, FALSE, NULL);

@@ -1,7 +1,5 @@
 
-add_definitions(
-    -DANONYMOUSUNIONS
-    -D_DEBUG_MEM)
+add_definitions(-D_DEBUG_MEM)
 
 include_directories(${REACTOS_SOURCE_DIR}/sdk/include/reactos/wine)
 include_directories(${REACTOS_SOURCE_DIR}/sdk/lib/conutils)
@@ -9,7 +7,6 @@ include_directories(${REACTOS_SOURCE_DIR}/sdk/lib/conutils)
 list(APPEND SOURCE
     alias.c
     assoc.c
-    attrib.c
     batch.c
     beep.c
     call.c
@@ -37,7 +34,6 @@ list(APPEND SOURCE
     history.c
     if.c
     internal.c
-    label.c
     locale.c
     memory.c
     misc.c

@@ -291,11 +291,6 @@ C_ASSERT(HEAP_CREATE_VALID_MASK == 0x0007F0FF);
 #define RTL_FIND_CHAR_IN_UNICODE_STRING_CASE_INSENSITIVE    4
 
 //
-// RtlImageNtHeaderEx Flags
-//
-#define RTL_IMAGE_NT_HEADER_EX_FLAG_NO_RANGE_CHECK          0x00000001
-
-//
 // RtlDosApplyFileIsolationRedirection_Ustr Flags
 //
 #define RTL_DOS_APPLY_FILE_REDIRECTION_USTR_FLAG_RESPECT_DOT_LOCAL  0x01
@@ -310,7 +305,7 @@ C_ASSERT(HEAP_CREATE_VALID_MASK == 0x0007F0FF);
 //
 // Activation Contexts
 //
-#define INVALID_ACTIVATION_CONTEXT                          (PVOID)0xFFFFFFFF
+#define INVALID_ACTIVATION_CONTEXT                          ((PVOID)(LONG_PTR)-1)
 
 //
 // C++ CONST casting
@@ -354,6 +349,13 @@ C_ASSERT(HEAP_CREATE_VALID_MASK == 0x0007F0FF);
 #define MESSAGE_RESOURCE_UNICODE                            0x0001
 
 #endif /* !NTOS_MODE_USER */
+
+//
+// RtlImageNtHeaderEx Flags
+//
+#define RTL_IMAGE_NT_HEADER_EX_FLAG_NO_RANGE_CHECK          0x00000001
+
+
 #define MAXIMUM_LEADBYTES                                   12
 
 //
@@ -695,7 +697,6 @@ typedef NTSTATUS
 //
 // RTL Range List callbacks
 //
-#ifdef NTOS_MODE_USER
 typedef BOOLEAN
 (NTAPI *PRTL_CONFLICT_RANGE_CALLBACK)(
     PVOID Context,
@@ -705,6 +706,7 @@ typedef BOOLEAN
 //
 // Custom Heap Commit Routine for RtlCreateHeap
 //
+#ifdef NTOS_MODE_USER
 typedef NTSTATUS
 (NTAPI * PRTL_HEAP_COMMIT_ROUTINE)(
     _In_ PVOID Base,
@@ -1157,7 +1159,7 @@ typedef struct _RTL_PROCESS_BACKTRACE_INFORMATION
     ULONG TraceCount;
     USHORT Index;
     USHORT Depth;
-    PVOID BackTrace[16];
+    PVOID BackTrace[32];
 } RTL_PROCESS_BACKTRACE_INFORMATION, *PRTL_PROCESS_BACKTRACE_INFORMATION;
 
 typedef struct _RTL_PROCESS_BACKTRACES
@@ -1203,7 +1205,7 @@ typedef struct _RTL_DEBUG_INFORMATION
     PRTL_PROCESS_LOCKS Locks;
     HANDLE SpecificHeap;
     HANDLE TargetProcessHandle;
-    RTL_PROCESS_VERIFIER_OPTIONS VerifierOptions;
+    PRTL_PROCESS_VERIFIER_OPTIONS VerifierOptions;
     HANDLE ProcessHeap;
     HANDLE CriticalSectionHandle;
     HANDLE CriticalSectionOwnerThread;
@@ -1211,8 +1213,21 @@ typedef struct _RTL_DEBUG_INFORMATION
 } RTL_DEBUG_INFORMATION, *PRTL_DEBUG_INFORMATION;
 
 //
+// Fiber local storage data
+//
+#define RTL_FLS_MAXIMUM_AVAILABLE 128
+typedef struct _RTL_FLS_DATA
+{
+    LIST_ENTRY ListEntry;
+    PVOID Data[RTL_FLS_MAXIMUM_AVAILABLE];
+} RTL_FLS_DATA, *PRTL_FLS_DATA;
+
+
+//
 // Unload Event Trace Structure for RtlGetUnloadEventTrace
 //
+#define RTL_UNLOAD_EVENT_TRACE_NUMBER 16
+
 typedef struct _RTL_UNLOAD_EVENT_TRACE
 {
     PVOID BaseAddress;
@@ -1465,6 +1480,29 @@ typedef struct _RANGE_LIST_ITERATOR
     ULONG Stamp;
 } RTL_RANGE_LIST_ITERATOR, *PRTL_RANGE_LIST_ITERATOR;
 
+typedef struct _RTLP_RANGE_LIST_ENTRY
+{
+    ULONGLONG Start;
+    ULONGLONG End;
+    union
+    {
+        struct
+        {
+            PVOID UserData;
+            PVOID Owner;
+        } Allocated;
+        struct
+        {
+            LIST_ENTRY ListHead;
+        } Merged;
+    };
+    UCHAR Attributes;
+    UCHAR PublicFlags;
+    USHORT PrivateFlags;
+    LIST_ENTRY ListEntry;
+} RTLP_RANGE_LIST_ENTRY, *PRTLP_RANGE_LIST_ENTRY;
+C_ASSERT(RTL_SIZEOF_THROUGH_FIELD(RTL_RANGE, Flags) == RTL_SIZEOF_THROUGH_FIELD(RTLP_RANGE_LIST_ENTRY, PublicFlags));
+
 //
 // RTL Resource
 //
@@ -1662,38 +1700,19 @@ typedef struct _RTL_ATOM_TABLE
     PRTL_ATOM_TABLE_ENTRY Buckets[1];
 } RTL_ATOM_TABLE, *PRTL_ATOM_TABLE;
 
-#ifndef _WINBASE_
 //
-// System Time and Timezone Structures
+// Timezone Information
 //
-typedef struct _SYSTEMTIME
-{
-    USHORT wYear;
-    USHORT wMonth;
-    USHORT wDayOfWeek;
-    USHORT wDay;
-    USHORT wHour;
-    USHORT wMinute;
-    USHORT wSecond;
-    USHORT wMilliseconds;
-} SYSTEMTIME, *PSYSTEMTIME, *LPSYSTEMTIME;
-
-typedef struct _TIME_ZONE_INFORMATION
+typedef struct _RTL_TIME_ZONE_INFORMATION
 {
     LONG Bias;
     WCHAR StandardName[32];
-    SYSTEMTIME StandardDate;
+    TIME_FIELDS StandardDate;
     LONG StandardBias;
     WCHAR DaylightName[32];
-    SYSTEMTIME DaylightDate;
+    TIME_FIELDS DaylightDate;
     LONG DaylightBias;
-} TIME_ZONE_INFORMATION, *PTIME_ZONE_INFORMATION, *LPTIME_ZONE_INFORMATION;
-#endif /* !_WINBASE_ */
-
-//
-// Native version of Timezone Structure
-//
-typedef LPTIME_ZONE_INFORMATION PRTL_TIME_ZONE_INFORMATION;
+} RTL_TIME_ZONE_INFORMATION, *PRTL_TIME_ZONE_INFORMATION;
 
 //
 // Hotpatch Header
@@ -1740,10 +1759,47 @@ typedef struct _RTL_STACK_TRACE_ENTRY
     PVOID BackTrace[32];
 } RTL_STACK_TRACE_ENTRY, *PRTL_STACK_TRACE_ENTRY;
 
+
 typedef struct _STACK_TRACE_DATABASE
 {
-    RTL_CRITICAL_SECTION CriticalSection;
+    union
+    {
+        PVOID Lock;
+
+        /* Padding for ERESOURCE */
+#if defined(_M_AMD64)
+        UCHAR Padding[0x68];
+#else
+        UCHAR Padding[56];
+#endif
+    } Lock;
+
+    BOOLEAN DumpInProgress;
+
+    PVOID CommitBase;
+    PVOID CurrentLowerCommitLimit;
+    PVOID CurrentUpperCommitLimit;
+
+    PCHAR NextFreeLowerMemory;
+    PCHAR NextFreeUpperMemory;
+
+    ULONG NumberOfEntriesAdded;
+    ULONG NumberOfAllocationFailures;
+    PRTL_STACK_TRACE_ENTRY* EntryIndexArray;
+
+    ULONG NumberOfBuckets;
+    PRTL_STACK_TRACE_ENTRY Buckets[ANYSIZE_ARRAY];
 } STACK_TRACE_DATABASE, *PSTACK_TRACE_DATABASE;
+
+// Validate that our padding is big enough:
+#ifndef NTOS_MODE_USER
+#if defined(_M_AMD64)
+C_ASSERT(sizeof(ERESOURCE) <= 0x68);
+#else
+C_ASSERT(sizeof(ERESOURCE) <= 56);
+#endif
+#endif
+
 
 //
 // Trace Database

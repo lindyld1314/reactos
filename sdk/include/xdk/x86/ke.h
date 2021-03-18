@@ -52,7 +52,7 @@ VOID
 KeMemoryBarrier(VOID)
 {
   LONG Barrier, *Dummy = &Barrier;
-  UNREFERENCED_LOCAL_VARIABLE(Dummy);
+  (VOID)Dummy;
 
 #if defined(__GNUC__)
   __asm__ __volatile__ ("xchg %%eax, %0" : : "m" (Barrier) : "%eax");
@@ -168,6 +168,16 @@ NTSTATUS
 NTAPI
 KeRestoreFloatingPointState(
   _In_ PKFLOATING_SAVE FloatSave);
+
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+FORCEINLINE
+ULONG
+NTAPI
+KeGetCurrentProcessorIndex(VOID)
+{
+    return __readfsbyte(0x51);
+}
+#endif
 
 /* VOID
  * KeFlushIoBuffers(
@@ -315,6 +325,9 @@ typedef struct _KPCR {
   ULONG HalReserved[16];
 } KPCR, *PKPCR;
 
+#if (NTDDI_VERSION >= NTDDI_WIN7)
+_CRT_DEPRECATE_TEXT("KeGetCurrentProcessorNumber is deprecated. Use KeGetCurrentProcessorNumberEx or KeGetCurrentProcessorIndex instead.")
+#endif
 FORCEINLINE
 ULONG
 KeGetCurrentProcessorNumber(VOID)
@@ -322,8 +335,25 @@ KeGetCurrentProcessorNumber(VOID)
     return (ULONG)__readfsbyte(FIELD_OFFSET(KPCR, Number));
 }
 
+/* Macros for kernel-mode run-time checks of X86 system architecture */
+#ifdef IsNEC_98
+#undef IsNEC_98
+#endif
+#define IsNEC_98     (SharedUserData->AlternativeArchitecture == NEC98x86)
+
+#ifdef IsNotNEC_98
+#undef IsNotNEC_98
+#endif
+#define IsNotNEC_98  (SharedUserData->AlternativeArchitecture != NEC98x86)
+
+#ifdef SetNEC_98
+#undef SetNEC_98
+#endif
+#define SetNEC_98    (SharedUserData->AlternativeArchitecture = NEC98x86)
+
+#ifdef SetNotNEC_98
+#undef SetNotNEC_98
+#endif
+#define SetNotNEC_98 (SharedUserData->AlternativeArchitecture = StandardDesign)
+
 $endif (_NTDDK_)
-
-
-
-

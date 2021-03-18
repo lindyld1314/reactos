@@ -3,7 +3,7 @@ remove_definitions(-D_WIN32_WINNT=0x502)
 add_definitions(-D_WIN32_WINNT=0x600)
 
 include_directories(${REACTOS_SOURCE_DIR}/sdk/include/reactos/wine)
-add_definitions(-D__WINESRC__ -DMSIRUNMODE=MSIRUNMODE_T)
+add_definitions(-D__WINESRC__ -D__ROS_LONG64__ -DMSIRUNMODE=MSIRUNMODE_T)
 spec2def(msi.dll msi.spec ADD_IMPORTLIB)
 generate_idl_iids(msiserver.idl)
 
@@ -14,7 +14,6 @@ list(APPEND SOURCE
     assembly.c
     automation.c
     classes.c
-    cond.tab.c
     create.c
     custom.c
     database.c
@@ -39,7 +38,6 @@ list(APPEND SOURCE
     script.c
     select.c
     source.c
-    sql.tab.c
     storages.c
     streams.c
     string.c
@@ -48,15 +46,33 @@ list(APPEND SOURCE
     tokenize.c
     update.c
     upgrade.c
-    where.c
-    precomp.h)
+    where.c)
 
-add_library(msi SHARED
-    ${SOURCE}
+BISON_TARGET(cond cond.y ${CMAKE_CURRENT_BINARY_DIR}/cond.tab.c COMPILE_FLAGS "-p cond_")
+BISON_TARGET(sql sql.y ${CMAKE_CURRENT_BINARY_DIR}/sql.tab.c COMPILE_FLAGS "-p sql_")
+
+list(APPEND PCH_SKIP_SOURCE
+    ${BISON_cond_OUTPUTS}
+    ${BISON_sql_OUTPUTS}
     ${CMAKE_CURRENT_BINARY_DIR}/msiserver_i.c
-    ${CMAKE_CURRENT_BINARY_DIR}/msi_stubs.c
+    ${CMAKE_CURRENT_BINARY_DIR}/msi_stubs.c)
+
+# cond.tab.c/sql.tab.c have been generated with relative file paths...
+set_source_files_properties(cond.tab.c sql.tab.c PROPERTIES COMPILE_FLAGS "-UREACTOS_SOURCE_DIR -DREACTOS_SOURCE_DIR=\"\\\".\\\"\"")
+
+add_library(msi MODULE
+    ${SOURCE}
+    ${PCH_SKIP_SOURCE}
     msi.rc
     ${CMAKE_CURRENT_BINARY_DIR}/msi.def)
+
+if(MSVC)
+    #  error C4133: 'function': incompatible types - from 'UINT *' to 'MSIINSTALLCONTEXT *'
+    remove_target_compile_option(msi "/we4133")
+
+    # error C4312: 'type cast': conversion from 'unsigned int' to 'HANDLE' of greater size
+    remove_target_compile_option(msi "/we4312")
+endif()
 
 add_idl_headers(msi_idlheader msiserver.idl)
 add_typelib(msiserver.idl)
@@ -73,5 +89,5 @@ add_importlibs(msi advapi32 advapi32_vista cabinet comctl32 gdi32 ole32 oleaut32
     kernel32
     ntdll)
 
-add_pch(msi precomp.h SOURCE)
+add_pch(msi precomp.h "${PCH_SKIP_SOURCE}")
 add_cd_file(TARGET msi DESTINATION reactos/system32 FOR all)

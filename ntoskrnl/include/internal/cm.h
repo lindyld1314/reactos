@@ -7,6 +7,7 @@
  */
 #define _CM_
 #include "cmlib.h"
+#include <cmreslist.h>
 
 //
 // Define this if you want debugging support
@@ -40,7 +41,7 @@
 // Hack since bigkeys are not yet supported
 //
 #define ASSERT_VALUE_BIG(h, s)                          \
-    ASSERTMSG("Big keys not supported!", !CmpIsKeyValueBig(h, s));
+    ASSERTMSG("Big keys not supported!\n", !CmpIsKeyValueBig(h, s));
 
 //
 // CM_KEY_CONTROL_BLOCK Signatures
@@ -859,7 +860,7 @@ CmpInitHiveFromFile(
 VOID
 NTAPI
 CmpInitializeHiveList(
-    IN USHORT Flag
+    VOID
 );
 
 //
@@ -1177,6 +1178,12 @@ CmGetSystemControlValues(
     IN PCM_SYSTEM_CONTROL_VECTOR ControlVector
 );
 
+NTSTATUS
+NTAPI
+CmpSaveBootControlSet(
+    IN USHORT ControlSet
+);
+
 //
 // Hardware Configuration Routines
 //
@@ -1357,9 +1364,10 @@ CmUnloadKey(
 
 ULONG
 NTAPI
-CmCountOpenSubKeys(
+CmpEnumerateOpenSubKeys(
     IN PCM_KEY_CONTROL_BLOCK RootKcb,
-    IN BOOLEAN RemoveEmptyCacheEntries
+    IN BOOLEAN RemoveEmptyCacheEntries,
+    IN BOOLEAN DereferenceOpenedEntries
 );
 
 HCELL_INDEX
@@ -1442,7 +1450,6 @@ CmpFindDrivers(
     IN PWSTR BootFileSystem OPTIONAL,
     IN PLIST_ENTRY DriverListHead
 );
-
 
 BOOLEAN
 NTAPI

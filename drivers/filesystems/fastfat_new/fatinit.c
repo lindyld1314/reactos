@@ -28,11 +28,7 @@ _Function_class_(DRIVER_UNLOAD)
 VOID
 NTAPI
 FatUnload(
-#ifndef __REACTOS__
     _In_ _Unreferenced_parameter_ PDRIVER_OBJECT DriverObject
-#else
-    _In_ PDRIVER_OBJECT DriverObject
-#endif
     );
 
 NTSTATUS
@@ -264,11 +260,7 @@ Return Value:
     //  Allocate the zero page
     //
 
-#ifndef __REACTOS__
     FatData.ZeroPage = ExAllocatePoolWithTag( NonPagedPoolNx, PAGE_SIZE, 'ZtaF' );
-#else
-    FatData.ZeroPage = ExAllocatePoolWithTag( NonPagedPool, PAGE_SIZE, 'ZtaF' );
-#endif
     if (FatData.ZeroPage == NULL) {
         IoDeleteDevice (FatDiskFileSystemDeviceObject);
         IoDeleteDevice (FatCdromFileSystemDeviceObject);        
@@ -388,11 +380,7 @@ Return Value:
     ExInitializeNPagedLookasideList( &FatIrpContextLookasideList,
                                      NULL,
                                      NULL,
-#ifndef __REACTOS__
                                      POOL_NX_ALLOCATION | POOL_RAISE_IF_ALLOCATION_FAILURE,
-#else
-                                     POOL_RAISE_IF_ALLOCATION_FAILURE,
-#endif
                                      sizeof(IRP_CONTEXT),
                                      TAG_IRP_CONTEXT,
                                      MaxDepth );
@@ -400,11 +388,7 @@ Return Value:
     ExInitializeNPagedLookasideList( &FatNonPagedFcbLookasideList,
                                      NULL,
                                      NULL,
-#ifndef __REACTOS__
                                      POOL_NX_ALLOCATION | POOL_RAISE_IF_ALLOCATION_FAILURE,
-#else
-                                     POOL_RAISE_IF_ALLOCATION_FAILURE,
-#endif
                                      sizeof(NON_PAGED_FCB),
                                      TAG_FCB_NONPAGED,
                                      MaxDepth );
@@ -412,11 +396,7 @@ Return Value:
     ExInitializeNPagedLookasideList( &FatEResourceLookasideList,
                                      NULL,
                                      NULL,
-#ifndef __REACTOS__
                                      POOL_NX_ALLOCATION | POOL_RAISE_IF_ALLOCATION_FAILURE,
-#else
-                                     POOL_RAISE_IF_ALLOCATION_FAILURE,
-#endif
                                      sizeof(ERESOURCE),
                                      TAG_ERESOURCE,
                                      MaxDepth );
@@ -462,11 +442,7 @@ _Function_class_(DRIVER_UNLOAD)
 VOID
 NTAPI
 FatUnload(
-#ifndef __REACTOS__
     _In_ _Unreferenced_parameter_ PDRIVER_OBJECT DriverObject
-#else
-    _In_ PDRIVER_OBJECT DriverObject
-#endif
     )
 
 /*++
@@ -652,14 +628,14 @@ FatIsFujitsuFMR (
 
 Routine Description:
 
-    This routine tells if is we running on a FujitsuFMR machine.
+    This routine tells us if we are running on a FujitsuFMR machine.
 
 Arguments:
 
 
 Return Value:
 
-    BOOLEAN - TRUE is we are and FALSE otherwise
+    BOOLEAN - TRUE if we are and FALSE otherwise
 
 --*/
 

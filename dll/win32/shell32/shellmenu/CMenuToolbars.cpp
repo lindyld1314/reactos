@@ -28,9 +28,6 @@
 
 #define IDS_MENU_EMPTY 34561
 
-#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
-#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
-
 WINE_DEFAULT_DEBUG_CHANNEL(CMenuToolbars);
 
 // FIXME: Enable if/when wine comctl supports this flag properly
@@ -266,7 +263,7 @@ HRESULT CMenuToolbarBase::OnCustomDraw(LPNMTBCUSTOMDRAW cdraw, LRESULT * theResu
 }
 
 CMenuToolbarBase::CMenuToolbarBase(CMenuBand *menuBand, BOOL usePager) :
-    m_pager(this, 1),
+    m_pager(WC_PAGESCROLLER, this),
     m_useFlatMenus(FALSE),
     m_disableMouseTrack(FALSE),
     m_timerEnabled(FALSE),
@@ -401,6 +398,7 @@ HRESULT CMenuToolbarBase::CreateToolbar(HWND hwndParent, DWORD dwFlags)
         rc.bottom = 1;
     }
 
+    // HACK & FIXME: CORE-17505
     SubclassWindow(CToolbar::Create(hwndParent, tbStyles, tbExStyles));
 
     SetWindowTheme(m_hWnd, L"", L"");
@@ -953,7 +951,7 @@ HRESULT CMenuToolbarBase::KeyboardItemChange(DWORD dwSelectType)
                     {
                         HWND tlw;
                         m_menuBand->_GetTopLevelWindow(&tlw);
-                        SendMessageW(tlw, WM_CANCELMODE, 0, 0);
+                        ::SendMessageW(tlw, WM_CANCELMODE, 0, 0);
                         PostMessageW(WM_USER_CHANGETRACKEDITEM, index, MAKELPARAM(m_isTrackingPopup, FALSE));
                     }
                     else
@@ -1166,7 +1164,8 @@ HRESULT  CMenuStaticToolbar::SetMenu(
     m_hwndMenu = hwnd;
     m_dwMenuFlags = dwFlags;
 
-    ClearToolbar();
+    if (IsWindow())
+        ClearToolbar();
 
     return S_OK;
 }
@@ -1411,7 +1410,8 @@ HRESULT CMenuSFToolbar::SetShellFolder(IShellFolder *psf, LPCITEMIDLIST pidlFold
     m_hKey = hKey;
     m_dwMenuFlags = dwFlags;
 
-    ClearToolbar();
+    if (IsWindow())
+        ClearToolbar();
 
     return S_OK;
 }
@@ -1500,7 +1500,7 @@ HRESULT CMenuSFToolbar::InternalPopupItem(INT iItem, INT index, DWORD_PTR dwData
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    hr = shellMenu->SetShellFolder(childFolder, NULL, NULL, 0);
+    hr = shellMenu->SetShellFolder(childFolder, NULL, NULL, SMSET_TOP);
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 

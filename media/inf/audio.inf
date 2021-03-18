@@ -69,6 +69,9 @@ ServiceBinary = %12%\sysaudio.sys
 ReactOS = "ReactOS Team"
 AUDIOClassName = "Audio & Videocontroller"
 
+[Strings.0404]
+AUDIOClassName = "音頻及視頻控制器"
+
 [Strings.0405]
 AUDIOClassName = "Řadiče zvuku a obrazu"
 
@@ -80,7 +83,7 @@ ReactOS = "Equipo de ReactOS"
 AUDIOClassName = "Dispositivos de sonido, vídeo y juegos"
 
 [Strings.0415]
-ReactOS = "Ekipa ReactOS"
+ReactOS = "Zespół ReactOS"
 AUDIOClassName = "Kontrolery audio, wideo i gier"
 
 [Strings.0416]

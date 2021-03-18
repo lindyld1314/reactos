@@ -17,26 +17,16 @@
 
 typedef struct _INTERNAL_WORK_QUEUE_ITEM
 {
-  WORK_QUEUE_ITEM WorkItem;
-  PDEVICE_OBJECT PhysicalDeviceObject;
-  PDEVICE_CHANGE_COMPLETE_CALLBACK Callback;
-  PVOID Context;
-  PTARGET_DEVICE_CUSTOM_NOTIFICATION NotificationStructure;
+    WORK_QUEUE_ITEM WorkItem;
+    PDEVICE_OBJECT PhysicalDeviceObject;
+    PDEVICE_CHANGE_COMPLETE_CALLBACK Callback;
+    PVOID Context;
+    PTARGET_DEVICE_CUSTOM_NOTIFICATION NotificationStructure;
 } INTERNAL_WORK_QUEUE_ITEM, *PINTERNAL_WORK_QUEUE_ITEM;
-
-NTSTATUS
-NTAPI
-IopCreateDeviceKeyPath(IN PCUNICODE_STRING RegistryPath,
-                       IN ULONG CreateOptions,
-                       OUT PHANDLE Handle);
 
 NTSTATUS
 IopSetDeviceInstanceData(HANDLE InstanceKey,
                          PDEVICE_NODE DeviceNode);
-
-NTSTATUS
-IopActionInterrogateDeviceStack(PDEVICE_NODE DeviceNode,
-                                PVOID Context);
 
 NTSTATUS
 PpSetCustomTargetEvent(IN PDEVICE_OBJECT DeviceObject,
@@ -53,57 +43,57 @@ IopGetInterfaceTypeString(INTERFACE_TYPE IfType)
 {
     switch (IfType)
     {
-       case Internal:
-         return L"Internal";
+        case Internal:
+            return L"Internal";
 
-       case Isa:
-         return L"Isa";
+        case Isa:
+            return L"Isa";
 
-       case Eisa:
-         return L"Eisa";
+        case Eisa:
+            return L"Eisa";
 
-       case MicroChannel:
-         return L"MicroChannel";
+        case MicroChannel:
+            return L"MicroChannel";
 
-       case TurboChannel:
-         return L"TurboChannel";
+        case TurboChannel:
+            return L"TurboChannel";
 
-       case PCIBus:
-         return L"PCIBus";
+        case PCIBus:
+            return L"PCIBus";
 
-       case VMEBus:
-         return L"VMEBus";
+        case VMEBus:
+            return L"VMEBus";
 
-       case NuBus:
-         return L"NuBus";
+        case NuBus:
+            return L"NuBus";
 
-       case PCMCIABus:
-         return L"PCMCIABus";
+        case PCMCIABus:
+            return L"PCMCIABus";
 
-       case CBus:
-         return L"CBus";
+        case CBus:
+            return L"CBus";
 
-       case MPIBus:
-         return L"MPIBus";
+        case MPIBus:
+            return L"MPIBus";
 
-       case MPSABus:
-         return L"MPSABus";
+        case MPSABus:
+            return L"MPSABus";
 
-       case ProcessorInternal:
-         return L"ProcessorInternal";
+        case ProcessorInternal:
+            return L"ProcessorInternal";
 
-       case PNPISABus:
-         return L"PNPISABus";
+        case PNPISABus:
+            return L"PNPISABus";
 
-       case PNPBus:
-         return L"PNPBus";
+        case PNPBus:
+            return L"PNPBus";
 
-       case Vmcs:
-         return L"Vmcs";
+        case Vmcs:
+            return L"Vmcs";
 
-       default:
-         DPRINT1("Invalid bus type: %d\n", IfType);
-         return NULL;
+        default:
+            DPRINT1("Invalid bus type: %d\n", IfType);
+            return NULL;
     }
 }
 
@@ -111,12 +101,12 @@ VOID
 NTAPI
 IopReportTargetDeviceChangeAsyncWorker(PVOID Context)
 {
-  PINTERNAL_WORK_QUEUE_ITEM Item;
+    PINTERNAL_WORK_QUEUE_ITEM Item;
 
-  Item = (PINTERNAL_WORK_QUEUE_ITEM)Context;
-  PpSetCustomTargetEvent(Item->PhysicalDeviceObject, NULL, NULL, Item->Callback, Item->Context, Item->NotificationStructure);
-  ObDereferenceObject(Item->PhysicalDeviceObject);
-  ExFreePoolWithTag(Context, '  pP');
+    Item = (PINTERNAL_WORK_QUEUE_ITEM)Context;
+    PpSetCustomTargetEvent(Item->PhysicalDeviceObject, NULL, NULL, Item->Callback, Item->Context, Item->NotificationStructure);
+    ObDereferenceObject(Item->PhysicalDeviceObject);
+    ExFreePoolWithTag(Context, '  pP');
 }
 
 NTSTATUS
@@ -137,11 +127,7 @@ PpSetCustomTargetEvent(IN PDEVICE_OBJECT DeviceObject,
     }
 
     /* That call is totally wrong but notifications handler must be fixed first */
-    IopNotifyPlugPlayNotification(DeviceObject,
-                                  EventCategoryTargetDeviceChange,
-                                  &GUID_PNP_CUSTOM_NOTIFICATION,
-                                  NotificationStructure,
-                                  NULL);
+    PiNotifyTargetDeviceChange(&GUID_PNP_CUSTOM_NOTIFICATION, DeviceObject, NotificationStructure);
 
     if (SyncEvent)
     {
@@ -159,20 +145,20 @@ PpSetCustomTargetEvent(IN PDEVICE_OBJECT DeviceObject,
  */
 NTSTATUS
 NTAPI
-IoReportDetectedDevice(IN PDRIVER_OBJECT DriverObject,
-                       IN INTERFACE_TYPE LegacyBusType,
-                       IN ULONG BusNumber,
-                       IN ULONG SlotNumber,
-                       IN PCM_RESOURCE_LIST ResourceList,
-                       IN PIO_RESOURCE_REQUIREMENTS_LIST ResourceRequirements OPTIONAL,
-                       IN BOOLEAN ResourceAssigned,
-                       IN OUT PDEVICE_OBJECT *DeviceObject OPTIONAL)
+IoReportDetectedDevice(
+    _In_ PDRIVER_OBJECT DriverObject,
+    _In_ INTERFACE_TYPE LegacyBusType,
+    _In_ ULONG BusNumber,
+    _In_ ULONG SlotNumber,
+    _In_opt_ PCM_RESOURCE_LIST ResourceList,
+    _In_opt_ PIO_RESOURCE_REQUIREMENTS_LIST ResourceRequirements,
+    _In_ BOOLEAN ResourceAssigned,
+    _Inout_ PDEVICE_OBJECT *DeviceObject)
 {
     PDEVICE_NODE DeviceNode;
     PDEVICE_OBJECT Pdo;
     NTSTATUS Status;
     HANDLE InstanceKey;
-    ULONG RequiredLength;
     UNICODE_STRING ValueName, ServiceLongName, ServiceName;
     WCHAR HardwareId[256];
     PWCHAR IfString;
@@ -233,6 +219,7 @@ IoReportDetectedDevice(IN PDRIVER_OBJECT DriverObject,
     }
 
     /* We use the caller's PDO if they supplied one */
+    UNICODE_STRING instancePath;
     if (DeviceObject && *DeviceObject)
     {
         Pdo = *DeviceObject;
@@ -240,10 +227,7 @@ IoReportDetectedDevice(IN PDRIVER_OBJECT DriverObject,
     else
     {
         /* Create the PDO */
-        Status = PnpRootCreateDevice(&ServiceName,
-                                     NULL,
-                                     &Pdo,
-                                     NULL);
+        Status = PnpRootCreateDevice(&ServiceName, NULL, &Pdo, &instancePath);
         if (!NT_SUCCESS(Status))
         {
             DPRINT("PnpRootCreateDevice() failed (Status 0x%08lx)\n", Status);
@@ -252,40 +236,17 @@ IoReportDetectedDevice(IN PDRIVER_OBJECT DriverObject,
     }
 
     /* Create the device node for the new PDO */
-    Status = IopCreateDeviceNode(IopRootDeviceNode,
-                                 Pdo,
-                                 NULL,
-                                 &DeviceNode);
-    if (!NT_SUCCESS(Status))
+    DeviceNode = PipAllocateDeviceNode(Pdo);
+    if (!DeviceNode)
     {
-        DPRINT("IopCreateDeviceNode() failed (Status 0x%08lx)\n", Status);
-        return Status;
+        DPRINT("PipAllocateDeviceNode() failed\n");
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    /* We're enumerated already */
-    IopDeviceNodeSetFlag(DeviceNode, DNF_ENUMERATED);
-
-    /* We don't call AddDevice for devices reported this way */
-    IopDeviceNodeSetFlag(DeviceNode, DNF_ADDED);
-
-    /* We don't send IRP_MN_START_DEVICE */
-    IopDeviceNodeSetFlag(DeviceNode, DNF_STARTED);
-
-    /* We need to get device IDs */
-#if 0
-    IopDeviceNodeSetFlag(DeviceNode, DNF_NEED_QUERY_IDS);
-#endif
-
-    /* This is a legacy driver for this device */
-    IopDeviceNodeSetFlag(DeviceNode, DNF_LEGACY_DRIVER);
-
-    /* Perform a manual configuration of our device */
-    IopActionInterrogateDeviceStack(DeviceNode, DeviceNode->Parent);
-    IopActionConfigureChildServices(DeviceNode, DeviceNode->Parent);
+    Status = RtlDuplicateUnicodeString(0, &instancePath, &DeviceNode->InstancePath);
 
     /* Open a handle to the instance path key */
-    /* REG_OPTION_VOLATILE is a HACK!!! */
-    Status = IopCreateDeviceKeyPath(&DeviceNode->InstancePath, REG_OPTION_VOLATILE, &InstanceKey);
+    Status = IopCreateDeviceKeyPath(&DeviceNode->InstancePath, REG_OPTION_NON_VOLATILE, &InstanceKey);
     if (!NT_SUCCESS(Status))
         return Status;
 
@@ -333,30 +294,6 @@ IoReportDetectedDevice(IN PDRIVER_OBJECT DriverObject,
         return Status;
     }
 
-    /* Add a hardware ID if the driver didn't report one */
-    RtlInitUnicodeString(&ValueName, L"HardwareID");
-    if (ZwQueryValueKey(InstanceKey, &ValueName, KeyValueBasicInformation, NULL, 0, &RequiredLength) == STATUS_OBJECT_NAME_NOT_FOUND)
-    {
-        /* Just use our most specific compatible ID */
-        IdLength = 0;
-        IdLength += swprintf(&HardwareId[IdLength],
-                             L"DETECTED%ls\\%wZ",
-                             IfString,
-                             &ServiceName);
-        IdLength++;
-
-        HardwareId[IdLength++] = UNICODE_NULL;
-
-        /* Write the value to the registry */
-        Status = ZwSetValueKey(InstanceKey, &ValueName, 0, REG_MULTI_SZ, HardwareId, IdLength * sizeof(WCHAR));
-        if (!NT_SUCCESS(Status))
-        {
-            DPRINT("Failed to write the hardware ID: 0x%x\n", Status);
-            ZwClose(InstanceKey);
-            return Status;
-        }
-    }
-
     /* Assign the resources to the device node */
     DeviceNode->BootResources = ResourceList;
     DeviceNode->ResourceRequirements = ResourceRequirements;
@@ -392,15 +329,15 @@ IoReportDetectedDevice(IN PDRIVER_OBJECT DriverObject,
     if (DeviceObject && *DeviceObject)
         PnpRootRegisterDevice(*DeviceObject);
 
-    /* Report the device's enumeration to umpnpmgr */
-    IopQueueTargetDeviceEvent(&GUID_DEVICE_ENUMERATED,
-                              &DeviceNode->InstancePath);
+    PiInsertDevNode(DeviceNode, IopRootDeviceNode);
+    DeviceNode->Flags |= DNF_MADEUP | DNF_ENUMERATED;
 
-    /* Report the device's arrival to umpnpmgr */
-    IopQueueTargetDeviceEvent(&GUID_DEVICE_ARRIVAL,
-                              &DeviceNode->InstancePath);
+    // we still need to query IDs, send events and reenumerate this node
+    PiSetDevNodeState(DeviceNode, DeviceNodeStartPostWork);
 
     DPRINT("Reported device: %S (%wZ)\n", HardwareId, &DeviceNode->InstancePath);
+
+    PiQueueDeviceAction(Pdo, PiActionEnumDeviceTree, NULL, NULL);
 
     /* Return the PDO */
     if (DeviceObject) *DeviceObject = Pdo;

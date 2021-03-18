@@ -17,20 +17,20 @@ function (add_apiset apiset_name baseaddress)
         -D_WCTYPE_DEFINED
         -D_CRT_ERRNO_DEFINED)
 
-    add_library(${apiset_name} SHARED
+    add_library(${apiset_name} MODULE
         ${CMAKE_CURRENT_BINARY_DIR}/${apiset_name}_stubs.c
         ${CMAKE_CURRENT_BINARY_DIR}/${apiset_name}.def)
 
     add_dependencies(${apiset_name} xdk)
-    set_module_type(${apiset_name} win32dll ENTRYPOINT 0 UNICODE IMAGEBASE ${baseaddress})
+    set_module_type(${apiset_name} module UNICODE IMAGEBASE ${baseaddress})
 
     if(NOT MSVC)
-        add_target_compile_flags(${apiset_name} "-fno-builtin")
+        target_compile_options(${apiset_name} PRIVATE -fno-builtin)
     else()
-        add_target_compile_flags(${apiset_name} "/wd4026 /wd4273")
+        target_compile_options(${apiset_name} PRIVATE /wd4026 /wd4273 /Oi-)
     endif()
 
-    add_importlibs(${apiset_name} ${ARGN} kernel32 ntdll)
+    add_importlibs(${apiset_name} ${ARGN} ntdll)
 
     add_cd_file(TARGET ${apiset_name} DESTINATION reactos/winsxs/x86_reactos.apisets_6595b64144ccf1df_1.0.0.0_none_deadbeef FOR all)
 endfunction()

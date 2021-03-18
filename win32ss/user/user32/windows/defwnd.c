@@ -328,6 +328,9 @@ User32DefWindowProc(HWND hWnd,
 
     switch (Msg)
     {
+        case WM_DEVICECHANGE:
+            return TRUE;
+
         case WM_POPUPSYSTEMMENU:
         {
             /* This is an undocumented message used by the windows taskbar to
@@ -748,6 +751,12 @@ User32DefWindowProc(HWND hWnd,
             break;
         }
 
+        case WM_COPYGLOBALDATA:
+        {
+            TRACE("WM_COPYGLOBALDATA hGlobal %p Size %d Flags 0x%x\n",lParam,wParam,GlobalFlags((HGLOBAL)lParam));
+            return lParam;
+        }
+
 /* Move to Win32k !*/
         case WM_SHOWWINDOW:
             if (!lParam) break; // Call when it is necessary.
@@ -869,7 +878,7 @@ RealDefWindowProcA(HWND hWnd,
         {
             PWSTR buf = NULL;
             PSTR outbuf = (PSTR)lParam;
-            UINT copy;
+            SIZE_T copy;
 
             if (Wnd != NULL && wParam != 0)
             {
@@ -1033,8 +1042,10 @@ RealDefWindowProcW(HWND hWnd,
                if (!Wnd->pSBInfo)
                {
                   SCROLLINFO si = {sizeof si, SIF_ALL, 0, 100, 0, 0, 0};
-                  SetScrollInfo( hWnd, SB_HORZ, &si, FALSE );
-                  SetScrollInfo( hWnd, SB_VERT, &si, FALSE );
+                  if (Wnd->style & WS_HSCROLL)
+                     SetScrollInfo( hWnd, SB_HORZ, &si, FALSE );
+                  if (Wnd->style & WS_VSCROLL)
+                     SetScrollInfo( hWnd, SB_VERT, &si, FALSE );
                }
             }
 

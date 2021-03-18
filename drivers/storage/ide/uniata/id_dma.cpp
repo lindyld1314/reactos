@@ -293,7 +293,7 @@ AtapiDmaSetup(
         return FALSE;
     }
     //KdPrint2((PRINT_PREFIX "  checkpoint 3\n" ));
-    if((ULONG)data & deviceExtension->AlignmentMask) {
+    if((ULONG_PTR)data & deviceExtension->AlignmentMask) {
         KdPrint2((PRINT_PREFIX "AtapiDmaSetup: unaligned data: %#x (%#x)\n", data, deviceExtension->AlignmentMask));
         return FALSE;
     }
@@ -341,7 +341,7 @@ retry_DB_IO:
         return FALSE;
     }
 
-    dma_count = min(count, (PAGE_SIZE - ((ULONG)data & PAGE_MASK)));
+    dma_count = min(count, (PAGE_SIZE - ((ULONG_PTR)data & PAGE_MASK)));
     data += dma_count;
     count -= dma_count;
     i = 0;
@@ -436,7 +436,7 @@ retry_DB_IO:
         *((PULONG)&(AtaReq->ahci.ahci_cmd_ptr->prd_tab[i].DBC_ULONG)) = ((dma_count-1) & 0x3fffff);
         //AtaReq->ahci.ahci_cmd_ptr->prd_tab[i].I      = 1; // interrupt when ready
         KdPrint2((PRINT_PREFIX "  ph data[%d]=%x:%x (%x)\n", i, dma_baseu, dma_base, AtaReq->ahci.ahci_cmd_ptr->prd_tab[i].DBC));
-        if(((ULONG)&(AtaReq->ahci.ahci_cmd_ptr->prd_tab) & ~PAGE_MASK) != ((ULONG)&(AtaReq->ahci.ahci_cmd_ptr->prd_tab[i]) & ~PAGE_MASK)) {
+        if(((ULONG_PTR)&(AtaReq->ahci.ahci_cmd_ptr->prd_tab) & ~PAGE_MASK) != ((ULONG_PTR)&(AtaReq->ahci.ahci_cmd_ptr->prd_tab[i]) & ~PAGE_MASK)) {
             KdPrint2((PRINT_PREFIX "PRD table crosses page boundary! %x vs %x\n",
                 &AtaReq->ahci.ahci_cmd_ptr->prd_tab, &(AtaReq->ahci.ahci_cmd_ptr->prd_tab[i]) ));
             //AtaReq->Flags |= REQ_FLAG_DMA_DBUF_PRD;
@@ -444,7 +444,7 @@ retry_DB_IO:
     } else {
         AtaReq->dma_tab[i].base = dma_base;
         AtaReq->dma_tab[i].count = (dma_count & 0xffff) | ATA_DMA_EOT;
-        if(((ULONG)&(AtaReq->dma_tab) & ~PAGE_MASK) != ((ULONG)&(AtaReq->dma_tab[i]) & ~PAGE_MASK)) {
+        if(((ULONG_PTR)&(AtaReq->dma_tab) & ~PAGE_MASK) != ((ULONG_PTR)&(AtaReq->dma_tab[i]) & ~PAGE_MASK)) {
             KdPrint2((PRINT_PREFIX "DMA table crosses page boundary! %x vs %x\n",
                 &AtaReq->dma_tab, &(AtaReq->dma_tab[i]) ));
             //AtaReq->Flags |= REQ_FLAG_DMA_DBUF_PRD;
@@ -1328,10 +1328,17 @@ dma_cs55xx:
             apiomode = 4;
 
         if(ChipType == CYRIX_3x) {
+#ifdef __REACTOS__
+            static const ULONG cyr_piotiming[] =
+                { 0x00009172, 0x00012171, 0x00020080, 0x00032010, 0x00040010 };
+            static const ULONG cyr_wdmatiming[] = { 0x00077771, 0x00012121, 0x00002020 };
+            static const ULONG cyr_udmatiming[] = { 0x00921250, 0x00911140, 0x00911030 };
+#else
             ULONG cyr_piotiming[] =
                 { 0x00009172, 0x00012171, 0x00020080, 0x00032010, 0x00040010 };
             ULONG cyr_wdmatiming[] = { 0x00077771, 0x00012121, 0x00002020 };
             ULONG cyr_udmatiming[] = { 0x00921250, 0x00911140, 0x00911030 };
+#endif
             ULONG mode_reg = 0x24+(dev << 3);
 
             for(i=udmamode; i>=0; i--) {
@@ -1352,8 +1359,12 @@ dma_cs55xx:
             }
         } else
         if(ChipType == CYRIX_OLD) {
+#ifdef __REACTOS__
+            static const UCHAR cyr_piotiming_old[] = { 11, 6, 3, 2, 1 };
+#else
             UCHAR cyr_piotiming_old[] =
                 { 11, 6, 3, 2, 1 };
+#endif
             UCHAR timing;
 
             for(i=wdmamode; i>=0; i--) {
@@ -1411,12 +1422,20 @@ dma_cs55xx:
         /* National */
         /************/
         if(!ChipType) {
+#ifdef __REACTOS__
+            static const ULONG nat_piotiming[] =
+                { 0x9172d132, 0x21717121, 0x00803020, 0x20102010, 0x00100010, 0x00803020,
+                  0x20102010, 0x00100010, 0x00100010, 0x00100010, 0x00100010 };
+            static const ULONG nat_dmatiming[] = { 0x80077771, 0x80012121, 0x80002020 };
+            static const ULONG nat_udmatiming[] = { 0x80921250, 0x80911140, 0x80911030 };
+#else
             ULONG nat_piotiming[] =
                { 0x9172d132, 0x21717121, 0x00803020, 0x20102010, 0x00100010,
                   0x00803020, 0x20102010, 0x00100010,
                   0x00100010, 0x00100010, 0x00100010 };
             ULONG nat_dmatiming[] = { 0x80077771, 0x80012121, 0x80002020 };
             ULONG nat_udmatiming[] = { 0x80921250, 0x80911140, 0x80911030 };
+#endif
 
             if(apiomode >= 4)
                 apiomode = 4;
@@ -1534,9 +1553,15 @@ dma_cs55xx:
         ULONG  new40  = 0;
         UCHAR  mask44 = 0;
         UCHAR  new44  = 0;
+#ifdef __REACTOS__
+        static const UCHAR intel_timings[] =
+            { 0x00, 0x00, 0x10, 0x21, 0x23, 0x10, 0x21, 0x23, 0x23, 0x23, 0x23, 0x23, 0x23, 0x23 };
+        static const UCHAR intel_utimings[] = { 0x00, 0x01, 0x02, 0x01, 0x02, 0x01, 0x02 };
+#else
         UCHAR  intel_timings[] = { 0x00, 0x00, 0x10, 0x21, 0x23, 0x10, 0x21, 0x23,
-    		                   0x23, 0x23, 0x23, 0x23, 0x23, 0x23 };
+                               0x23, 0x23, 0x23, 0x23, 0x23, 0x23 };
         UCHAR  intel_utimings[] = { 0x00, 0x01, 0x02, 0x01, 0x02, 0x01, 0x02 };
+#endif
 	const UCHAR needed_pio[3] = {
 		ATA_PIO0, ATA_PIO3, ATA_PIO4
 	};
@@ -2260,10 +2285,13 @@ setup_drive_ite:
         UCHAR reg40;
         GetPciConfig1(0x40, reg40);
 
+        /*
+        This is done on chip-init phase
         if(reg40 & 0x08) {
             // 80-pin check
             udmamode = min(udmamode, 2);
         }
+        */
 	/* Nothing to do to setup mode, the controller snoop SET_FEATURE cmd. */
         if(apiomode >= 4)
             apiomode = 4;

@@ -558,7 +558,7 @@ DbgkpPostFakeModuleMessages(IN PEPROCESS Process,
                 if (!NT_SUCCESS(Status)) LoadDll->FileHandle = NULL;
 
                 /* Free the name now */
-                ExFreePool(ModuleName.Buffer);
+                RtlFreeUnicodeString(&ModuleName);
             }
 
             /* Send the fake module load message */
@@ -1492,8 +1492,8 @@ DbgkClearProcessDebugObject(IN PEPROCESS Process,
     return STATUS_SUCCESS;
 }
 
+CODE_SEG("INIT")
 VOID
-INIT_FUNCTION
 NTAPI
 DbgkInitialize(VOID)
 {

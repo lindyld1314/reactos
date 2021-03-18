@@ -13,10 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, ExpInitializeMutantImplementation)
-#endif
-
 /* DATA **********************************************************************/
 
 POBJECT_TYPE ExMutantObjectType = NULL;
@@ -50,8 +46,8 @@ ExpDeleteMutant(PVOID ObjectBody)
                     FALSE);
 }
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 ExpInitializeMutantImplementation(VOID)
 {

@@ -21,9 +21,63 @@
 
 #include "precomp.h"
 
+#define NTOS_MODE_USER
+#include <ndk/iofuncs.h>
+#include <ndk/obfuncs.h>
+
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 EXTERN_C BOOL PathIsExeW(LPCWSTR lpszPath);
+
+BOOL GetPhysicalFileSize(LPCWSTR PathBuffer, PULARGE_INTEGER Size)
+{
+    UNICODE_STRING FileName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    IO_STATUS_BLOCK IoStatusBlock;
+    HANDLE FileHandle;
+    FILE_STANDARD_INFORMATION FileInfo;
+    NTSTATUS Status;
+    
+    if (!RtlDosPathNameToNtPathName_U(PathBuffer, &FileName, NULL, NULL))
+    {
+        ERR("RtlDosPathNameToNtPathName_U failed\n");
+        return FALSE;
+    }
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &FileName,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+    Status = NtOpenFile(&FileHandle,
+                        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                        &ObjectAttributes,
+                        &IoStatusBlock,
+                        FILE_SHARE_READ,
+                        FILE_SYNCHRONOUS_IO_NONALERT);
+    RtlFreeUnicodeString(&FileName);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("NtOpenFile failed for %S (Status 0x%08lx)\n", PathBuffer, Status);
+        return FALSE;
+    }
+
+    /* Query the file size */
+    Status = NtQueryInformationFile(FileHandle,
+                                    &IoStatusBlock,
+                                    &FileInfo,
+                                    sizeof(FileInfo),
+                                    FileStandardInformation);
+    NtClose(FileHandle);
+    if (!NT_SUCCESS(Status))
+    {
+        ERR("NtQueryInformationFile failed for %S (Status: %08lX)\n", PathBuffer, Status);
+        return FALSE;
+    }
+    
+    Size->QuadPart = FileInfo.AllocationSize.QuadPart;
+    return TRUE;
+}
 
 BOOL CFileVersionInfo::Load(LPCWSTR pwszPath)
 {
@@ -80,7 +134,7 @@ LPCWSTR CFileVersionInfo::GetString(LPCWSTR pwszName)
     if (!VerQueryValueW(m_pInfo, wszBuf, (LPVOID *)&pwszResult, &cBytes))
         pwszResult = NULL;
 
-    if (!m_wLang && !m_wCode)
+    if (!pwszResult)
     {
         /* Try US English */
         swprintf(wszBuf, L"\\StringFileInfo\\%04x%04x\\%s", MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US), 1252, pwszName);
@@ -552,7 +606,17 @@ CFileDefExt::InitFileAttr(HWND hwndDlg)
             FileSize.u.LowPart = FileInfo.nFileSizeLow;
             FileSize.u.HighPart = FileInfo.nFileSizeHigh;
             if (SH_FormatFileSizeWithBytes(&FileSize, wszBuf, _countof(wszBuf)))
+            {
                 SetDlgItemTextW(hwndDlg, 14011, wszBuf);
+                
+                // Compute file on disk. If fails, use logical size
+                if (GetPhysicalFileSize(m_wszPath, &FileSize))
+                    SH_FormatFileSizeWithBytes(&FileSize, wszBuf, _countof(wszBuf));
+                else
+                    ERR("Unreliable size on disk\n");
+
+                SetDlgItemTextW(hwndDlg, 14012, wszBuf);
+            }
         }
     }
 
@@ -562,8 +626,7 @@ CFileDefExt::InitFileAttr(HWND hwndDlg)
 
         _CountFolderAndFilesData *data = static_cast<_CountFolderAndFilesData*>(HeapAlloc(GetProcessHeap(), 0, sizeof(_CountFolderAndFilesData)));
         data->This = this;
-        data->pwszBuf = static_cast<LPWSTR>(HeapAlloc(GetProcessHeap(), 0, sizeof(WCHAR) * MAX_PATH));
-        data->cchBufMax = MAX_PATH;
+        data->pwszBuf = static_cast<LPWSTR>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(WCHAR) * MAX_PATH));
         data->hwndDlg = hwndDlg;
         this->AddRef();
         StringCchCopyW(data->pwszBuf, MAX_PATH, m_wszPath);
@@ -573,6 +636,9 @@ CFileDefExt::InitFileAttr(HWND hwndDlg)
         /* Update size field */
         if (SH_FormatFileSizeWithBytes(&m_DirSize, wszBuf, _countof(wszBuf)))
             SetDlgItemTextW(hwndDlg, 14011, wszBuf);
+
+        if (SH_FormatFileSizeWithBytes(&m_DirSizeOnDisc, wszBuf, _countof(wszBuf)))
+            SetDlgItemTextW(hwndDlg, 14012, wszBuf);
 
         /* Display files and folders count */
         WCHAR wszFormat[256];
@@ -614,6 +680,16 @@ CFileDefExt::InitGeneralPage(HWND hwndDlg)
             LoadStringW(shell32_hInstance, IDS_EXE_DESCRIPTION, wszBuf, _countof(wszBuf));
             SetDlgItemTextW(hwndDlg, 14006, wszBuf);
             ShowWindow(GetDlgItem(hwndDlg, 14024), SW_HIDE);
+
+            /* hidden button 14024 allows to draw edit 14007 larger than defined in resources , we use edit 14009 as idol */
+            RECT rectIdol, rectToAdjust;
+            GetClientRect(GetDlgItem(hwndDlg, 14009), &rectIdol);
+            GetClientRect(GetDlgItem(hwndDlg, 14007), &rectToAdjust);
+            SetWindowPos(GetDlgItem(hwndDlg, 14007), HWND_TOP, 0, 0,
+                rectIdol.right-rectIdol.left /* make it as wide as its idol */,
+                rectToAdjust.bottom-rectToAdjust.top /* but keep its current height */,
+                SWP_NOMOVE | SWP_NOZORDER );
+
             LPCWSTR pwszDescr = m_VerInfo.GetString(L"FileDescription");
             if (pwszDescr)
                 SetDlgItemTextW(hwndDlg, 14007, pwszDescr);
@@ -643,6 +719,7 @@ CFileDefExt::InitGeneralPage(HWND hwndDlg)
 INT_PTR CALLBACK
 CFileDefExt::GeneralPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    CFileDefExt *pFileDefExt = reinterpret_cast<CFileDefExt *>(GetWindowLongPtr(hwndDlg, DWLP_USER));
     switch (uMsg)
     {
         case WM_INITDIALOG:
@@ -654,7 +731,7 @@ CFileDefExt::GeneralPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
 
             TRACE("WM_INITDIALOG hwnd %p lParam %p ppsplParam %S\n", hwndDlg, lParam, ppsp->lParam);
 
-            CFileDefExt *pFileDefExt = reinterpret_cast<CFileDefExt *>(ppsp->lParam);
+            pFileDefExt = reinterpret_cast<CFileDefExt *>(ppsp->lParam);
             SetWindowLongPtr(hwndDlg, DWLP_USER, (LONG_PTR)pFileDefExt);
             pFileDefExt->InitGeneralPage(hwndDlg);
             break;
@@ -662,7 +739,6 @@ CFileDefExt::GeneralPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
         case WM_COMMAND:
             if (LOWORD(wParam) == 14024) /* Opens With - Change */
             {
-                CFileDefExt *pFileDefExt = reinterpret_cast<CFileDefExt *>(GetWindowLongPtr(hwndDlg, DWLP_USER));
                 OPENASINFO oainfo;
                 oainfo.pcszFile = pFileDefExt->m_wszPath;
                 oainfo.pcszClass = NULL;
@@ -682,8 +758,6 @@ CFileDefExt::GeneralPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
             LPPSHNOTIFY lppsn = (LPPSHNOTIFY)lParam;
             if (lppsn->hdr.code == PSN_APPLY)
             {
-                CFileDefExt *pFileDefExt = reinterpret_cast<CFileDefExt *>(GetWindowLongPtr(hwndDlg, DWLP_USER));
-
                 /* Update attributes first */
                 DWORD dwAttr = GetFileAttributesW(pFileDefExt->m_wszPath);
                 if (dwAttr)
@@ -716,6 +790,19 @@ CFileDefExt::GeneralPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
                 return TRUE;
             }
             break;
+        }
+        case PSM_QUERYSIBLINGS:
+        {
+            // reset icon
+            HWND hIconCtrl = GetDlgItem(hwndDlg, 14025);
+            HICON hIcon = (HICON)SendMessageW(hIconCtrl, STM_GETICON, 0, 0);
+            DestroyIcon(hIcon);
+            hIcon = NULL;
+            SendMessageW(hIconCtrl, STM_SETICON, (WPARAM)hIcon, 0);
+
+            // refresh the page
+            pFileDefExt->InitGeneralPage(hwndDlg);
+            return FALSE;   // continue
         }
         default:
             break;
@@ -878,6 +965,8 @@ CFileDefExt::VersionPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
             break;
         case WM_DESTROY:
             break;
+        case PSM_QUERYSIBLINGS:
+            return FALSE;   // continue
         default:
             break;
     }
@@ -885,11 +974,263 @@ CFileDefExt::VersionPageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
     return FALSE;
 }
 
+/*************************************************************************/
+/* Folder Customize */
+
+static const WCHAR s_szShellClassInfo[] = L".ShellClassInfo";
+static const WCHAR s_szIconIndex[] = L"IconIndex";
+static const WCHAR s_szIconFile[] = L"IconFile";
+static const WCHAR s_szIconResource[] = L"IconResource";
+
+// IDD_FOLDER_CUSTOMIZE
+INT_PTR CALLBACK
+CFileDefExt::FolderCustomizePageProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    CFileDefExt *pFileDefExt = reinterpret_cast<CFileDefExt *>(GetWindowLongPtr(hwndDlg, DWLP_USER));
+    switch (uMsg)
+    {
+        case WM_INITDIALOG:
+        {
+            LPPROPSHEETPAGE ppsp = (LPPROPSHEETPAGE)lParam;
+
+            if (ppsp == NULL || !ppsp->lParam)
+                break;
+
+            TRACE("WM_INITDIALOG hwnd %p lParam %p ppsplParam %x\n", hwndDlg, lParam, ppsp->lParam);
+
+            pFileDefExt = reinterpret_cast<CFileDefExt *>(ppsp->lParam);
+            return pFileDefExt->InitFolderCustomizePage(hwndDlg);
+        }
+
+        case WM_COMMAND:
+            switch (LOWORD(wParam))
+            {
+                case IDC_FOLDERCUST_CHANGE_ICON:
+                    pFileDefExt->OnFolderCustChangeIcon(hwndDlg);
+                    break;
+
+                case IDC_FOLDERCUST_CHOOSE_PIC:
+                    // TODO:
+                    break;
+
+                case IDC_FOLDERCUST_RESTORE_DEFAULTS:
+                    // TODO:
+                    break;
+            }
+            break;
+
+        case WM_NOTIFY:
+        {
+            LPPSHNOTIFY lppsn = (LPPSHNOTIFY)lParam;
+            if (lppsn->hdr.code == PSN_APPLY)
+            {
+                // apply or not
+                if (pFileDefExt->OnFolderCustApply(hwndDlg))
+                {
+                    SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_NOERROR);
+                }
+                else
+                {
+                    SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE);
+                }
+                return TRUE;
+            }
+            break;
+        }
+
+        case PSM_QUERYSIBLINGS:
+            return FALSE;   // continue
+
+        case WM_DESTROY:
+            pFileDefExt->OnFolderCustDestroy(hwndDlg);
+            break;
+
+        default:
+            break;
+    }
+
+    return FALSE;
+}
+
+// IDD_FOLDER_CUSTOMIZE WM_DESTROY
+void CFileDefExt::OnFolderCustDestroy(HWND hwndDlg)
+{
+    ::DestroyIcon(m_hFolderIcon);
+    m_hFolderIcon = NULL;
+
+    /* Detach the object from dialog window */
+    SetWindowLongPtr(hwndDlg, DWLP_USER, (LONG_PTR)0);
+}
+
+void CFileDefExt::UpdateFolderIcon(HWND hwndDlg)
+{
+    // destroy icon if any
+    if (m_hFolderIcon)
+    {
+        ::DestroyIcon(m_hFolderIcon);
+        m_hFolderIcon = NULL;
+    }
+
+    // create the icon
+    if (m_szFolderIconPath[0] == 0 && m_nFolderIconIndex == 0)
+    {
+        m_hFolderIcon = LoadIconW(shell32_hInstance, MAKEINTRESOURCEW(IDI_SHELL_FOLDER));
+    }
+    else
+    {
+        ExtractIconExW(m_szFolderIconPath, m_nFolderIconIndex, &m_hFolderIcon, NULL, 1);
+    }
+
+    // set icon
+    SendDlgItemMessageW(hwndDlg, IDC_FOLDERCUST_ICON, STM_SETICON, (WPARAM)m_hFolderIcon, 0);
+}
+
+// IDD_FOLDER_CUSTOMIZE WM_INITDIALOG
+BOOL CFileDefExt::InitFolderCustomizePage(HWND hwndDlg)
+{
+    /* Attach the object to dialog window */
+    SetWindowLongPtr(hwndDlg, DWLP_USER, (LONG_PTR)this);
+
+    EnableWindow(GetDlgItem(hwndDlg, IDC_FOLDERCUST_COMBOBOX), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, IDC_FOLDERCUST_CHECKBOX), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, IDC_FOLDERCUST_CHOOSE_PIC), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, IDC_FOLDERCUST_RESTORE_DEFAULTS), FALSE);
+
+    // build the desktop.ini file path
+    WCHAR szIniFile[MAX_PATH];
+    StringCchCopyW(szIniFile, _countof(szIniFile), m_wszPath);
+    PathAppendW(szIniFile, L"desktop.ini");
+
+    // desktop.ini --> m_szFolderIconPath, m_nFolderIconIndex
+    m_szFolderIconPath[0] = 0;
+    m_nFolderIconIndex = 0;
+    if (GetPrivateProfileStringW(s_szShellClassInfo, s_szIconFile, NULL,
+                                 m_szFolderIconPath, _countof(m_szFolderIconPath), szIniFile))
+    {
+        m_nFolderIconIndex = GetPrivateProfileIntW(s_szShellClassInfo, s_szIconIndex, 0, szIniFile);
+    }
+    else if (GetPrivateProfileStringW(s_szShellClassInfo, s_szIconResource, NULL,
+                                      m_szFolderIconPath, _countof(m_szFolderIconPath), szIniFile))
+    {
+        m_nFolderIconIndex = PathParseIconLocationW(m_szFolderIconPath);
+    }
+
+    // update icon
+    UpdateFolderIcon(hwndDlg);
+
+    return TRUE;
+}
+
+// IDD_FOLDER_CUSTOMIZE IDC_FOLDERCUST_CHANGE_ICON
+void CFileDefExt::OnFolderCustChangeIcon(HWND hwndDlg)
+{
+    WCHAR szPath[MAX_PATH];
+    INT nIconIndex;
+
+    // m_szFolderIconPath, m_nFolderIconIndex --> szPath, nIconIndex
+    if (m_szFolderIconPath[0])
+    {
+        StringCchCopyW(szPath, _countof(szPath), m_szFolderIconPath);
+        nIconIndex = m_nFolderIconIndex;
+    }
+    else
+    {
+        szPath[0] = 0;
+        nIconIndex = 0;
+    }
+
+    // let the user choose the icon
+    if (PickIconDlg(hwndDlg, szPath, _countof(szPath), &nIconIndex))
+    {
+        // changed
+        m_bFolderIconIsSet = TRUE;
+        PropSheet_Changed(GetParent(hwndDlg), hwndDlg);
+
+        // update
+        StringCchCopyW(m_szFolderIconPath, _countof(m_szFolderIconPath), szPath);
+        m_nFolderIconIndex = nIconIndex;
+        UpdateFolderIcon(hwndDlg);
+    }
+}
+
+// IDD_FOLDER_CUSTOMIZE PSN_APPLY
+BOOL CFileDefExt::OnFolderCustApply(HWND hwndDlg)
+{
+    // build the desktop.ini file path
+    WCHAR szIniFile[MAX_PATH];
+    StringCchCopyW(szIniFile, _countof(szIniFile), m_wszPath);
+    PathAppendW(szIniFile, L"desktop.ini");
+
+    if (m_bFolderIconIsSet)     // it is set!
+    {
+        DWORD attrs;
+
+        // change folder attributes (-S -R)
+        attrs = GetFileAttributesW(m_wszPath);
+        attrs &= ~(FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_READONLY);
+        SetFileAttributesW(m_wszPath, attrs);
+
+        // change desktop.ini attributes (-S -H -R)
+        attrs = GetFileAttributesW(szIniFile);
+        attrs &= ~(FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_READONLY);
+        SetFileAttributesW(szIniFile, attrs);
+
+        if (m_szFolderIconPath[0])
+        {
+            // write IconFile and IconIndex
+            WritePrivateProfileStringW(s_szShellClassInfo, s_szIconFile, m_szFolderIconPath, szIniFile);
+
+            WCHAR szInt[32];
+            StringCchPrintfW(szInt, _countof(szInt), L"%d", m_nFolderIconIndex);
+            WritePrivateProfileStringW(s_szShellClassInfo, s_szIconIndex, szInt, szIniFile);
+
+            // flush!
+            WritePrivateProfileStringW(NULL, NULL, NULL, szIniFile);
+        }
+        else
+        {
+            // erase three values
+            WritePrivateProfileStringW(s_szShellClassInfo, s_szIconFile, NULL, szIniFile);
+            WritePrivateProfileStringW(s_szShellClassInfo, s_szIconIndex, NULL, szIniFile);
+            WritePrivateProfileStringW(s_szShellClassInfo, s_szIconResource, NULL, szIniFile);
+
+            // flush!
+            WritePrivateProfileStringW(NULL, NULL, NULL, szIniFile);
+        }
+
+        // change desktop.ini attributes (+S +H)
+        attrs = GetFileAttributesW(szIniFile);
+        attrs |= FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN;
+        SetFileAttributesW(szIniFile, attrs);
+
+        // change folder attributes (+R)
+        attrs = GetFileAttributesW(m_wszPath);
+        attrs |= FILE_ATTRIBUTE_READONLY;
+        SetFileAttributesW(m_wszPath, attrs);
+
+        // notify to the siblings
+        PropSheet_QuerySiblings(GetParent(hwndDlg), 0, 0);
+
+        // done!
+        m_bFolderIconIsSet = FALSE;
+    }
+
+    return TRUE;
+}
+
+/*****************************************************************************/
+
 CFileDefExt::CFileDefExt():
     m_bDir(FALSE), m_cFiles(0), m_cFolders(0)
 {
     m_wszPath[0] = L'\0';
     m_DirSize.QuadPart = 0ull;
+    m_DirSizeOnDisc.QuadPart = 0ull;
+
+    m_szFolderIconPath[0] = 0;
+    m_nFolderIconIndex = 0;
+    m_hFolderIcon = NULL;
+    m_bFolderIconIsSet = FALSE;
 }
 
 CFileDefExt::~CFileDefExt()
@@ -898,7 +1239,7 @@ CFileDefExt::~CFileDefExt()
 }
 
 HRESULT WINAPI
-CFileDefExt::Initialize(LPCITEMIDLIST pidlFolder, IDataObject *pDataObj, HKEY hkeyProgID)
+CFileDefExt::Initialize(PCIDLIST_ABSOLUTE pidlFolder, IDataObject *pDataObj, HKEY hkeyProgID)
 {
     FORMATETC format;
     STGMEDIUM stgm;
@@ -916,7 +1257,7 @@ CFileDefExt::Initialize(LPCITEMIDLIST pidlFolder, IDataObject *pDataObj, HKEY hk
     format.tymed = TYMED_HGLOBAL;
 
     hr = pDataObj->GetData(&format, &stgm);
-    if (FAILED(hr))
+    if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
     if (!DragQueryFileW((HDROP)stgm.hGlobal, 0, m_wszPath, _countof(m_wszPath)))
@@ -980,6 +1321,16 @@ CFileDefExt::AddPages(LPFNADDPROPSHEETPAGE pfnAddPage, LPARAM lParam)
             pfnAddPage(hPage, lParam);
     }
 
+    if (m_bDir)
+    {
+        hPage = SH_CreatePropertySheetPage(IDD_FOLDER_CUSTOMIZE,
+                                           FolderCustomizePageProc,
+                                           (LPARAM)this,
+                                           NULL);
+        if (hPage)
+            pfnAddPage(hPage, lParam);
+    }
+
     return S_OK;
 }
 
@@ -1009,7 +1360,7 @@ CFileDefExt::_CountFolderAndFilesThreadProc(LPVOID lpParameter)
 {
     _CountFolderAndFilesData *data = static_cast<_CountFolderAndFilesData*>(lpParameter);
     DWORD ticks = 0;
-    data->This->CountFolderAndFiles(data->hwndDlg, data->pwszBuf, data->cchBufMax, &ticks);
+    data->This->CountFolderAndFiles(data->hwndDlg, data->pwszBuf, &ticks);
 
     //Release the CFileDefExt and data object holds in the copying thread.
     data->This->Release();
@@ -1020,25 +1371,19 @@ CFileDefExt::_CountFolderAndFilesThreadProc(LPVOID lpParameter)
 }
 
 BOOL
-CFileDefExt::CountFolderAndFiles(HWND hwndDlg, LPWSTR pwszBuf, UINT cchBufMax, DWORD *ticks)
+CFileDefExt::CountFolderAndFiles(HWND hwndDlg, LPCWSTR pwszBuf, DWORD *ticks)
 {
-    /* Find filename position */
-    UINT cchBuf = wcslen(pwszBuf);
-    WCHAR *pwszFilename = pwszBuf + cchBuf;
-    size_t cchFilenameMax = cchBufMax - cchBuf;
-    if (!cchFilenameMax)
-        return FALSE;
-    *(pwszFilename++) = '\\';
-    --cchFilenameMax;
-
-    /* Find all files, FIXME: shouldn't be "*"? */
-    StringCchCopyW(pwszFilename, cchFilenameMax, L"*");
+    CString sBuf = pwszBuf;
+    sBuf += L"\\" ;
+    CString sSearch = sBuf;
+    sSearch += L"*" ;
+    CString sFileName;
 
     WIN32_FIND_DATAW wfd;
-    HANDLE hFind = FindFirstFileW(pwszBuf, &wfd);
+    HANDLE hFind = FindFirstFileW(sSearch, &wfd);
     if (hFind == INVALID_HANDLE_VALUE)
     {
-        ERR("FindFirstFileW %ls failed\n", pwszBuf);
+        ERR("FindFirstFileW %ls failed\n", sSearch.GetString());
         return FALSE;
     }
 
@@ -1050,6 +1395,8 @@ CFileDefExt::CountFolderAndFiles(HWND hwndDlg, LPWSTR pwszBuf, UINT cchBufMax, D
 
     do
     {
+        sFileName = sBuf;
+        sFileName += wfd.cFileName;
         if (wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
         {
             /* Don't process "." and ".." items */
@@ -1058,8 +1405,7 @@ CFileDefExt::CountFolderAndFiles(HWND hwndDlg, LPWSTR pwszBuf, UINT cchBufMax, D
 
             ++m_cFolders;
 
-            StringCchCopyW(pwszFilename, cchFilenameMax, wfd.cFileName);
-            CountFolderAndFiles(hwndDlg, pwszBuf, cchBufMax, ticks);
+            CountFolderAndFiles(hwndDlg, sFileName, ticks);
         }
         else
         {
@@ -1069,19 +1415,26 @@ CFileDefExt::CountFolderAndFiles(HWND hwndDlg, LPWSTR pwszBuf, UINT cchBufMax, D
             FileSize.u.LowPart  = wfd.nFileSizeLow;
             FileSize.u.HighPart = wfd.nFileSizeHigh;
             m_DirSize.QuadPart += FileSize.QuadPart;
+            // Calculate size on disc
+            if (!GetPhysicalFileSize(sFileName.GetString(), &FileSize))
+                ERR("GetPhysicalFileSize failed for %ls\n", sFileName.GetString());
+            m_DirSizeOnDisc.QuadPart += FileSize.QuadPart;
         }
         if (GetTickCount() - *ticks > (DWORD) 300)
         {
             /* FIXME Using IsWindow is generally ill advised */
             if (IsWindow(hwndDlg))
             {
-                WCHAR wszBuf[MAX_PATH];
+                WCHAR wszBuf[100];
 
                 if (SH_FormatFileSizeWithBytes(&m_DirSize, wszBuf, _countof(wszBuf)))
                     SetDlgItemTextW(hwndDlg, 14011, wszBuf);
 
+                if (SH_FormatFileSizeWithBytes(&m_DirSizeOnDisc, wszBuf, _countof(wszBuf)))
+                    SetDlgItemTextW(hwndDlg, 14012, wszBuf);
+
                 /* Display files and folders count */
-                WCHAR wszFormat[256];
+                WCHAR wszFormat[100];
                 LoadStringW(shell32_hInstance, IDS_FILE_FOLDER, wszFormat, _countof(wszFormat));
                 StringCchPrintfW(wszBuf, _countof(wszBuf), wszFormat, m_cFiles, m_cFolders);
                 SetDlgItemTextW(hwndDlg, 14027, wszBuf);
@@ -1094,13 +1447,16 @@ CFileDefExt::CountFolderAndFiles(HWND hwndDlg, LPWSTR pwszBuf, UINT cchBufMax, D
 
     if (root && IsWindow(hwndDlg))
     {
-        WCHAR wszBuf[MAX_PATH];
+        WCHAR wszBuf[100];
 
         if (SH_FormatFileSizeWithBytes(&m_DirSize, wszBuf, _countof(wszBuf)))
             SetDlgItemTextW(hwndDlg, 14011, wszBuf);
 
+        if (SH_FormatFileSizeWithBytes(&m_DirSizeOnDisc, wszBuf, _countof(wszBuf)))
+            SetDlgItemTextW(hwndDlg, 14012, wszBuf);
+
         /* Display files and folders count */
-        WCHAR wszFormat[256];
+        WCHAR wszFormat[100];
         LoadStringW(shell32_hInstance, IDS_FILE_FOLDER, wszFormat, _countof(wszFormat));
         StringCchPrintfW(wszBuf, _countof(wszBuf), wszFormat, m_cFiles, m_cFolders);
         SetDlgItemTextW(hwndDlg, 14027, wszBuf);

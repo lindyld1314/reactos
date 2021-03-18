@@ -16,7 +16,8 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-/* COPYRIGHT:       See COPYING in the top level directory
+/*
+ * COPYRIGHT:       See COPYING in the top level directory
  * PROJECT:         ReactOS text-mode setup
  * FILE:            base/setup/usetup/format.c
  * PURPOSE:         Filesystem format support functions
@@ -55,24 +56,27 @@ FormatCallback(
             break;
         }
 
-        /*case OUTPUT:
+#if 0
+        case OUTPUT:
         {
             PTEXTOUTPUT Output;
             output = (PTEXTOUTPUT) Argument;
             DPRINT("%s\n", output->Output);
             break;
-        }*/
+        }
+#endif
 
         case DONE:
         {
-            /*PBOOLEAN Success;*/
+            // PBOOLEAN Success;
             DPRINT("Done\n");
-
-            /*Success = (PBOOLEAN)Argument;
+#if 0
+            Success = (PBOOLEAN)Argument;
             if (*Success == FALSE)
             {
                 DPRINT("FormatEx was unable to complete successfully.\n\n");
-            }*/
+            }
+#endif
             break;
         }
 
@@ -84,16 +88,13 @@ FormatCallback(
     return TRUE;
 }
 
-
 NTSTATUS
-FormatPartition(
-    IN PUNICODE_STRING DriveRoot,
-    IN PFILE_SYSTEM_ITEM FileSystem)
+DoFormat(
+    IN PPARTENTRY PartEntry,
+    IN PCWSTR FileSystemName,
+    IN BOOLEAN QuickFormat)
 {
     NTSTATUS Status;
-
-    if (!FileSystem->FormatFunc)
-        return STATUS_NOT_SUPPORTED;
 
     FormatProgressBar = CreateProgressBar(6,
                                           yScreen - 14,
@@ -106,12 +107,14 @@ FormatPartition(
 
     ProgressSetStepCount(FormatProgressBar, 100);
 
-    Status = FileSystem->FormatFunc(DriveRoot,
-                                    FMIFS_HARDDISK,          /* MediaFlag */
-                                    NULL,                    /* Label */
-                                    FileSystem->QuickFormat, /* QuickFormat */
-                                    0,                       /* ClusterSize */
-                                    FormatCallback);         /* Callback */
+    // TODO: Think about which values could be defaulted...
+    Status = FormatPartition(PartEntry,
+                             FileSystemName,
+                             FMIFS_HARDDISK,  /* MediaFlag */
+                             NULL,            /* Label */
+                             QuickFormat,     /* QuickFormat */
+                             0,               /* ClusterSize */
+                             FormatCallback); /* Callback */
 
     DestroyProgressBar(FormatProgressBar);
     FormatProgressBar = NULL;

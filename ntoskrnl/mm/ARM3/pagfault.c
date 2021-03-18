@@ -33,7 +33,7 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     PETHREAD CurrentThread = PsGetCurrentThread();
     PTEB Teb = CurrentThread->Tcb.Teb;
     PVOID StackBase, DeallocationStack, NextStackAddress;
-    SIZE_T GuranteedSize;
+    SIZE_T GuaranteedSize;
     NTSTATUS Status;
 
     /* Do we own the address space lock? */
@@ -56,15 +56,15 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     /* Read the current settings */
     StackBase = Teb->NtTib.StackBase;
     DeallocationStack = Teb->DeallocationStack;
-    GuranteedSize = Teb->GuaranteedStackBytes;
+    GuaranteedSize = Teb->GuaranteedStackBytes;
     DPRINT("Handling guard page fault with Stacks Addresses 0x%p and 0x%p, guarantee: %lx\n",
-            StackBase, DeallocationStack, GuranteedSize);
+            StackBase, DeallocationStack, GuaranteedSize);
 
     /* Guarantees make this code harder, for now, assume there aren't any */
-    ASSERT(GuranteedSize == 0);
+    ASSERT(GuaranteedSize == 0);
 
     /* So allocate only the minimum guard page size */
-    GuranteedSize = PAGE_SIZE;
+    GuaranteedSize = PAGE_SIZE;
 
     /* Does this faulting stack address actually exist in the stack? */
     if ((Address >= StackBase) || (Address < DeallocationStack))
@@ -76,13 +76,34 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     }
 
     /* This is where the stack will start now */
-    NextStackAddress = (PVOID)((ULONG_PTR)PAGE_ALIGN(Address) - GuranteedSize);
+    NextStackAddress = (PVOID)((ULONG_PTR)PAGE_ALIGN(Address) - GuaranteedSize);
 
     /* Do we have at least one page between here and the end of the stack? */
     if (((ULONG_PTR)NextStackAddress - PAGE_SIZE) <= (ULONG_PTR)DeallocationStack)
     {
-        /* We don't -- Windows would try to make this guard page valid now */
+        /* We don't -- Trying to make this guard page valid now */
         DPRINT1("Close to our death...\n");
+
+        /* Calculate the next memory address */
+        NextStackAddress = (PVOID)((ULONG_PTR)PAGE_ALIGN(DeallocationStack) + GuaranteedSize);
+
+        /* Allocate the memory */
+        Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
+                                         &NextStackAddress,
+                                         0,
+                                         &GuaranteedSize,
+                                         MEM_COMMIT,
+                                         PAGE_READWRITE);
+        if (NT_SUCCESS(Status))
+        {
+            /* Success! */
+            Teb->NtTib.StackLimit = NextStackAddress;
+        }
+        else
+        {
+            DPRINT1("Failed to allocate memory\n");
+        }
+
         return STATUS_STACK_OVERFLOW;
     }
 
@@ -90,13 +111,13 @@ MiCheckForUserStackOverflow(IN PVOID Address,
     ASSERT((PsGetCurrentProcess()->Peb->NtGlobalFlag & FLG_DISABLE_STACK_EXTENSION) == 0);
 
     /* Update the stack limit */
-    Teb->NtTib.StackLimit = (PVOID)((ULONG_PTR)NextStackAddress + GuranteedSize);
+    Teb->NtTib.StackLimit = (PVOID)((ULONG_PTR)NextStackAddress + GuaranteedSize);
 
     /* Now move the guard page to the next page */
     Status = ZwAllocateVirtualMemory(NtCurrentProcess(),
                                      &NextStackAddress,
                                      0,
-                                     &GuranteedSize,
+                                     &GuaranteedSize,
                                      MEM_COMMIT,
                                      PAGE_READWRITE | PAGE_GUARD);
     if ((NT_SUCCESS(Status) || (Status == STATUS_ALREADY_COMMITTED)))
@@ -298,7 +319,7 @@ MiCheckVirtualAddress(IN PVOID VirtualAddress,
         }
 
         /* Return full access rights */
-        *ProtectCode = MM_READWRITE;
+        *ProtectCode = MM_EXECUTE_READWRITE;
         return NULL;
     }
     else if (MI_IS_SESSION_ADDRESS(VirtualAddress))
@@ -2078,7 +2099,7 @@ UserFault:
         /* Resolve a demand zero fault */
         MiResolveDemandZeroFault(PointerPpe,
                                  PointerPxe,
-                                 MM_READWRITE,
+                                 MM_EXECUTE_READWRITE,
                                  CurrentProcess,
                                  MM_NOIRQL);
 
@@ -2112,7 +2133,7 @@ UserFault:
         /* Resolve a demand zero fault */
         MiResolveDemandZeroFault(PointerPde,
                                  PointerPpe,
-                                 MM_READWRITE,
+                                 MM_EXECUTE_READWRITE,
                                  CurrentProcess,
                                  MM_NOIRQL);
 
@@ -2154,7 +2175,7 @@ UserFault:
         /* Resolve a demand zero fault */
         MiResolveDemandZeroFault(PointerPte,
                                  PointerPde,
-                                 MM_READWRITE,
+                                 MM_EXECUTE_READWRITE,
                                  CurrentProcess,
                                  MM_NOIRQL);
 #if MI_TRACE_PFNS
@@ -2241,12 +2262,13 @@ UserFault:
     }
 
     /* Quick check for demand-zero */
-    if (TempPte.u.Long == (MM_READWRITE << MM_PTE_SOFTWARE_PROTECTION_BITS))
+    if ((TempPte.u.Long == (MM_READWRITE << MM_PTE_SOFTWARE_PROTECTION_BITS)) ||
+        (TempPte.u.Long == (MM_EXECUTE_READWRITE << MM_PTE_SOFTWARE_PROTECTION_BITS)))
     {
         /* Resolve the fault */
         MiResolveDemandZeroFault(Address,
                                  PointerPte,
-                                 MM_READWRITE,
+                                 TempPte.u.Soft.Protection,
                                  CurrentProcess,
                                  MM_NOIRQL);
 
@@ -2317,7 +2339,7 @@ UserFault:
                 _WARN("This is probably completely broken!");
                 MI_WRITE_INVALID_PDE((PMMPDE)PointerPte, DemandZeroPde);
 #else
-                MI_WRITE_INVALID_PTE(PointerPte, DemandZeroPde);
+                MI_WRITE_INVALID_PDE(PointerPte, DemandZeroPde);
 #endif
             }
             else
@@ -2555,7 +2577,7 @@ MmSetExecuteOptions(IN ULONG ExecuteOptions)
     }
 
     /* Change the NX state in the process lock */
-    KiAcquireProcessLock(CurrentProcess, &ProcessLock);
+    KiAcquireProcessLockRaiseToSynch(CurrentProcess, &ProcessLock);
 
     /* Don't change anything if the permanent flag was set */
     if (!CurrentProcess->Flags.Permanent)

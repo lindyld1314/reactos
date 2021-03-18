@@ -4,7 +4,30 @@
  * \brief SSL ciphersuites for mbed TLS
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,6 +42,8 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ *  **********
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
@@ -45,11 +70,11 @@
 /*
  * Ordered from most preferred to least preferred in terms of security.
  *
- * Current rule (except rc4, weak and null which come last):
+ * Current rule (except RC4 and 3DES, weak and null which come last):
  * 1. By key exchange:
  *    Forward-secure non-PSK > forward-secure PSK > ECJPAKE > other non-PSK > other PSK
  * 2. By key length and cipher:
- *    AES-256 > Camellia-256 > AES-128 > Camellia-128 > 3DES
+ *    AES-256 > Camellia-256 > AES-128 > Camellia-128
  * 3. By cipher mode when relevant GCM > CCM > CBC > CCM_8
  * 4. By hash function used when relevant
  * 5. By key exchange/auth again: EC > non-EC
@@ -107,11 +132,6 @@ static const int ciphersuite_preference[] =
     MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256,
     MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA,
 
-    /* All remaining >= 128-bit ephemeral suites */
-    MBEDTLS_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
-    MBEDTLS_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
-    MBEDTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
-
     /* The PSK ephemeral suites */
     MBEDTLS_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384,
     MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CCM,
@@ -134,9 +154,6 @@ static const int ciphersuite_preference[] =
     MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256,
     MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256,
     MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CCM_8,
-
-    MBEDTLS_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA,
-    MBEDTLS_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA,
 
     /* The ECJPAKE suite */
     MBEDTLS_TLS_ECJPAKE_WITH_AES_128_CCM_8,
@@ -185,11 +202,6 @@ static const int ciphersuite_preference[] =
     MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256,
     MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256,
 
-    /* All remaining >= 128-bit suites */
-    MBEDTLS_TLS_RSA_WITH_3DES_EDE_CBC_SHA,
-    MBEDTLS_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA,
-    MBEDTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
-
     /* The RSA PSK suites */
     MBEDTLS_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384,
     MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384,
@@ -202,8 +214,6 @@ static const int ciphersuite_preference[] =
     MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA,
     MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256,
     MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256,
-
-    MBEDTLS_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA,
 
     /* The PSK suites */
     MBEDTLS_TLS_PSK_WITH_AES_256_GCM_SHA384,
@@ -222,6 +232,16 @@ static const int ciphersuite_preference[] =
     MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256,
     MBEDTLS_TLS_PSK_WITH_AES_128_CCM_8,
 
+    /* 3DES suites */
+    MBEDTLS_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
+    MBEDTLS_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA,
     MBEDTLS_TLS_PSK_WITH_3DES_EDE_CBC_SHA,
 
     /* RC4 suites */
@@ -1706,6 +1726,26 @@ const int *mbedtls_ssl_list_ciphersuites( void )
 static int supported_ciphersuites[MAX_CIPHERSUITES];
 static int supported_init = 0;
 
+static int ciphersuite_is_removed( const mbedtls_ssl_ciphersuite_t *cs_info )
+{
+    (void)cs_info;
+
+#if defined(MBEDTLS_REMOVE_ARC4_CIPHERSUITES)
+    if( cs_info->cipher == MBEDTLS_CIPHER_ARC4_128 )
+        return( 1 );
+#endif /* MBEDTLS_REMOVE_ARC4_CIPHERSUITES */
+
+#if defined(MBEDTLS_REMOVE_3DES_CIPHERSUITES)
+    if( cs_info->cipher == MBEDTLS_CIPHER_DES_EDE3_ECB ||
+        cs_info->cipher == MBEDTLS_CIPHER_DES_EDE3_CBC )
+    {
+        return( 1 );
+    }
+#endif /* MBEDTLS_REMOVE_3DES_CIPHERSUITES */
+
+    return( 0 );
+}
+
 const int *mbedtls_ssl_list_ciphersuites( void )
 {
     /*
@@ -1721,14 +1761,12 @@ const int *mbedtls_ssl_list_ciphersuites( void )
              *p != 0 && q < supported_ciphersuites + MAX_CIPHERSUITES - 1;
              p++ )
         {
-#if defined(MBEDTLS_REMOVE_ARC4_CIPHERSUITES)
             const mbedtls_ssl_ciphersuite_t *cs_info;
             if( ( cs_info = mbedtls_ssl_ciphersuite_from_id( *p ) ) != NULL &&
-                cs_info->cipher != MBEDTLS_CIPHER_ARC4_128 )
-#else
-            if( mbedtls_ssl_ciphersuite_from_id( *p ) != NULL )
-#endif
+                !ciphersuite_is_removed( cs_info ) )
+            {
                 *(q++) = *p;
+            }
         }
         *q = 0;
 
@@ -1839,7 +1877,8 @@ mbedtls_pk_type_t mbedtls_ssl_get_ciphersuite_sig_alg( const mbedtls_ssl_ciphers
 
 #endif /* MBEDTLS_PK_C */
 
-#if defined(MBEDTLS_ECDH_C) || defined(MBEDTLS_ECDSA_C)
+#if defined(MBEDTLS_ECDH_C) || defined(MBEDTLS_ECDSA_C) || \
+    defined(MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 int mbedtls_ssl_ciphersuite_uses_ec( const mbedtls_ssl_ciphersuite_t *info )
 {
     switch( info->key_exchange )
@@ -1849,13 +1888,14 @@ int mbedtls_ssl_ciphersuite_uses_ec( const mbedtls_ssl_ciphersuite_t *info )
         case MBEDTLS_KEY_EXCHANGE_ECDHE_PSK:
         case MBEDTLS_KEY_EXCHANGE_ECDH_RSA:
         case MBEDTLS_KEY_EXCHANGE_ECDH_ECDSA:
+        case MBEDTLS_KEY_EXCHANGE_ECJPAKE:
             return( 1 );
 
         default:
             return( 0 );
     }
 }
-#endif /* MBEDTLS_ECDH_C || MBEDTLS_ECDSA_C */
+#endif /* MBEDTLS_ECDH_C || MBEDTLS_ECDSA_C || MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED*/
 
 #if defined(MBEDTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
 int mbedtls_ssl_ciphersuite_uses_psk( const mbedtls_ssl_ciphersuite_t *info )

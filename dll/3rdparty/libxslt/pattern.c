@@ -199,6 +199,12 @@ xsltFreeCompMatchList(xsltCompMatchPtr comp) {
     }
 }
 
+static void
+xsltFreeCompMatchListEntry(void *payload,
+                           const xmlChar *name ATTRIBUTE_UNUSED) {
+    xsltFreeCompMatchList((xsltCompMatchPtr) payload);
+}
+
 /**
  * xsltNormalizeCompSteps:
  * @payload: pointer to template hash table entry
@@ -316,20 +322,14 @@ xsltCompMatchAdd(xsltParserContextPtr ctxt, xsltCompMatchPtr comp,
 	    xsltAllocateExtra(ctxt->style);
     }
     if (op == XSLT_OP_PREDICATE) {
-	xmlXPathContextPtr xctxt;
+        int flags = 0;
 
-	if (ctxt->style != NULL)
-	    xctxt = xmlXPathNewContext(ctxt->style->doc);
-	else
-	    xctxt = xmlXPathNewContext(NULL);
 #ifdef XML_XPATH_NOVAR
 	if (novar != 0)
-	    xctxt->flags = XML_XPATH_NOVAR;
+	    flags = XML_XPATH_NOVAR;
 #endif
-	if (ctxt->style != NULL)
-	    xctxt->dict = ctxt->style->dict;
-	comp->steps[comp->nbStep].comp = xmlXPathCtxtCompile(xctxt, value);
-	xmlXPathFreeContext(xctxt);
+	comp->steps[comp->nbStep].comp = xsltXPathCompileFlags(ctxt->style,
+                value, flags);
 	if (comp->steps[comp->nbStep].comp == NULL) {
 	    xsltTransformError(NULL, ctxt->style, ctxt->elem,
 		    "Failed to compile predicate\n");
@@ -494,6 +494,11 @@ xsltPatPushState(xsltTransformContextPtr ctxt, xsltStepStates *states,
     return(0);
 }
 
+static void
+xmlXPathFreeObjectWrapper(void *obj) {
+    xmlXPathFreeObject((xmlXPathObjectPtr) obj);
+}
+
 /**
  * xsltTestCompMatchDirect:
  * @ctxt:  a XSLT process context
@@ -579,7 +584,7 @@ xsltTestCompMatchDirect(xsltTransformContextPtr ctxt, xsltCompMatchPtr comp,
 	    XSLT_RUNTIME_EXTRA(ctxt, sel->indexExtra, ival) =
 		0;
 	    XSLT_RUNTIME_EXTRA_FREE(ctxt, sel->lenExtra) =
-		(xmlFreeFunc) xmlXPathFreeObject;
+		xmlXPathFreeObjectWrapper;
 	} else
 	    list = newlist;
     }
@@ -1219,6 +1224,34 @@ xsltTestCompMatchList(xsltTransformContextPtr ctxt, xmlNodePtr node,
     return(0);
 }
 
+/**
+ * xsltCompMatchClearCache:
+ * @ctxt:  a XSLT process context
+ * @comp: the precompiled pattern list
+ *
+ * Clear pattern match cache.
+ */
+void
+xsltCompMatchClearCache(xsltTransformContextPtr ctxt, xsltCompMatchPtr comp) {
+    xsltStepOpPtr sel;
+    xmlXPathObjectPtr list;
+
+    if ((ctxt == NULL) || (comp == NULL))
+        return;
+
+    sel = &comp->steps[0];
+    list = (xmlXPathObjectPtr) XSLT_RUNTIME_EXTRA_LST(ctxt, sel->lenExtra);
+
+    if (list != NULL) {
+        xmlXPathFreeObject(list);
+
+        XSLT_RUNTIME_EXTRA_LST(ctxt, sel->lenExtra) = NULL;
+        XSLT_RUNTIME_EXTRA(ctxt, sel->previousExtra, ptr) = NULL;
+        XSLT_RUNTIME_EXTRA(ctxt, sel->indexExtra, ival) = 0;
+        XSLT_RUNTIME_EXTRA_FREE(ctxt, sel->lenExtra) = NULL;
+    }
+}
+
 /************************************************************************
  *									*
  *			Dedicated parser for templates			*
@@ -1763,9 +1796,7 @@ xsltCompileRelativePathPattern(xsltParserContextPtr ctxt, xmlChar *token, int no
 	    PUSH(XSLT_OP_PARENT, NULL, NULL, novar);
 	    NEXT;
 	    SKIP_BLANKS;
-	    if ((CUR != 0) && (CUR != '|')) {
-		xsltCompileRelativePathPattern(ctxt, NULL, novar);
-	    }
+	    xsltCompileStepPattern(ctxt, NULL, novar);
 	} else {
 	    ctxt->error = 1;
 	}
@@ -1830,6 +1861,8 @@ xsltCompileLocationPathPattern(xsltParserContextPtr ctxt, int novar) {
 	    xsltCompileIdKeyPattern(ctxt, name, 1, novar, 0);
 	    xmlFree(name);
 	    name = NULL;
+            if (ctxt->error)
+                return;
 	    if ((CUR == '/') && (NXT(1) == '/')) {
 		PUSH(XSLT_OP_ANCESTOR, NULL, NULL, novar);
 		NEXT;
@@ -2104,8 +2137,15 @@ xsltAddTemplate(xsltStylesheetPtr style, xsltTemplatePtr cur,
         xmlHashAddEntry2(style->namedTemplates, cur->name, cur->nameURI, cur);
     }
 
-    if (cur->match == NULL)
+    if (cur->match == NULL) {
+            if (cur->name == NULL) {
+                xsltTransformError(NULL, style, cur->elem,
+                    "xsl:template: need to specify match or name attribute\n");
+                style->errors++;
+                return(-1);
+            }
 	return(0);
+    }
 
     priority = cur->priority;
     pat = xsltCompilePatternInternal(cur->match, style->doc, cur->elem,
@@ -2331,6 +2371,7 @@ xsltGetTemplate(xsltTransformContextPtr ctxt, xmlNodePtr node,
 		case XML_ELEMENT_NODE:
 		    if (node->name[0] == ' ')
 			break;
+                    /* Intentional fall-through */
 		case XML_ATTRIBUTE_NODE:
 		case XML_PI_NODE:
 		    name = node->name;
@@ -2368,7 +2409,7 @@ xsltGetTemplate(xsltTransformContextPtr ctxt, xmlNodePtr node,
 	    list = NULL;
 	while (list != NULL) {
 	    if (xsltTestCompMatch(ctxt, list, node,
-			          ctxt->mode, ctxt->modeURI)) {
+			          ctxt->mode, ctxt->modeURI) == 1) {
 		ret = list->template;
 		priority = list->priority;
 		break;
@@ -2437,7 +2478,7 @@ xsltGetTemplate(xsltTransformContextPtr ctxt, xmlNodePtr node,
 	while ((list != NULL) &&
 	       ((ret == NULL)  || (list->priority > priority))) {
 	    if (xsltTestCompMatch(ctxt, list, node,
-			          ctxt->mode, ctxt->modeURI)) {
+			          ctxt->mode, ctxt->modeURI) == 1) {
 		ret = list->template;
 		priority = list->priority;
 		break;
@@ -2454,7 +2495,7 @@ xsltGetTemplate(xsltTransformContextPtr ctxt, xmlNodePtr node,
 	    while ((list != NULL) &&
 		   ((ret == NULL)  || (list->priority > priority))) {
 		if (xsltTestCompMatch(ctxt, list, node,
-				      ctxt->mode, ctxt->modeURI)) {
+				      ctxt->mode, ctxt->modeURI) == 1) {
 		    ret = list->template;
 		    priority = list->priority;
 		    break;
@@ -2467,7 +2508,7 @@ xsltGetTemplate(xsltTransformContextPtr ctxt, xmlNodePtr node,
 	    while ((list != NULL) &&
 		   ((ret == NULL)  || (list->priority > priority))) {
 		if (xsltTestCompMatch(ctxt, list, node,
-				      ctxt->mode, ctxt->modeURI)) {
+				      ctxt->mode, ctxt->modeURI) == 1) {
 		    ret = list->template;
 		    priority = list->priority;
 		    break;
@@ -2482,7 +2523,7 @@ keyed_match:
 	    while ((list != NULL) &&
 		   ((ret == NULL)  || (list->priority > priority))) {
 		if (xsltTestCompMatch(ctxt, list, node,
-				      ctxt->mode, ctxt->modeURI)) {
+				      ctxt->mode, ctxt->modeURI) == 1) {
 		    ret = list->template;
 		    priority = list->priority;
 		    break;
@@ -2559,7 +2600,7 @@ void
 xsltFreeTemplateHashes(xsltStylesheetPtr style) {
     if (style->templatesHash != NULL)
 	xmlHashFree((xmlHashTablePtr) style->templatesHash,
-		    (xmlHashDeallocator) xsltFreeCompMatchList);
+		    xsltFreeCompMatchListEntry);
     if (style->rootMatch != NULL)
         xsltFreeCompMatchList(style->rootMatch);
     if (style->keyMatch != NULL)

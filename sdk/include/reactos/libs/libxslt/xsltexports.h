@@ -51,7 +51,11 @@
   #undef XSLTCALL
   #if defined(IN_LIBXSLT) && !defined(LIBXSLT_STATIC)
     #define XSLTPUBFUN __declspec(dllexport)
-    #define XSLTPUBVAR __declspec(dllexport)
+    #ifndef __clang__
+        #define XSLTPUBVAR __declspec(dllexport)
+    #else
+        #define XSLTPUBVAR __declspec(dllexport) extern
+    #endif
   #else
     #define XSLTPUBFUN
     #if !defined(LIBXSLT_STATIC)
@@ -113,8 +117,8 @@
   #endif
 #endif
 
-/* Cygwin platform, GNU compiler */
-#if defined(_WIN32) && defined(__CYGWIN__)
+/* Cygwin platform (does not define _WIN32), GNU compiler */
+#if defined(__CYGWIN__)
   #undef XSLTPUBFUN
   #undef XSLTPUBVAR
   #undef XSLTCALL
@@ -126,7 +130,7 @@
     #if !defined(LIBXSLT_STATIC)
       #define XSLTPUBVAR __declspec(dllimport) extern
     #else
-      #define XSLTPUBVAR
+      #define XSLTPUBVAR extern
     #endif
   #endif
   #define XSLTCALL __cdecl

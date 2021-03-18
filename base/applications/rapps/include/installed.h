@@ -3,20 +3,54 @@
 #include <windef.h>
 #include <atlstr.h>
 
-struct INSTALLED_INFO
+class CInstalledApplicationInfo
 {
-    HKEY hRootKey;
+public:
+    BOOL IsUserKey;
+    REGSAM WowKey;
     HKEY hSubKey;
+    BOOL bIsUpdate = FALSE;
+
     ATL::CStringW szKeyName;
+
+    CInstalledApplicationInfo(BOOL bIsUserKey, REGSAM RegWowKey, HKEY hKey);
+    BOOL GetApplicationRegString(LPCWSTR lpKeyName, ATL::CStringW& String);
+    BOOL GetApplicationRegDword(LPCWSTR lpKeyName, DWORD *lpValue);
+    BOOL RetrieveIcon(ATL::CStringW& IconLocation);
+    BOOL UninstallApplication(BOOL bModify);
+    LSTATUS RemoveFromRegistry();
+
+    ATL::CStringW szDisplayIcon;
+    ATL::CStringW szDisplayName;
+    ATL::CStringW szDisplayVersion;
+    ATL::CStringW szPublisher;
+    ATL::CStringW szRegOwner;
+    ATL::CStringW szProductID;
+    ATL::CStringW szHelpLink;
+    ATL::CStringW szHelpTelephone;
+    ATL::CStringW szReadme;
+    ATL::CStringW szContact;
+    ATL::CStringW szURLUpdateInfo;
+    ATL::CStringW szURLInfoAbout;
+    ATL::CStringW szComments;
+    ATL::CStringW szInstallDate;
+    ATL::CStringW szInstallLocation;
+    ATL::CStringW szInstallSource;
+    ATL::CStringW szUninstallString;
+    ATL::CStringW szModifyPath;
+
+    ~CInstalledApplicationInfo();
 };
 
-typedef INSTALLED_INFO *PINSTALLED_INFO;
-typedef BOOL(CALLBACK *APPENUMPROC)(INT ItemIndex, ATL::CStringW &Name, PINSTALLED_INFO Info);
+typedef BOOL(CALLBACK *APPENUMPROC)(CInstalledApplicationInfo * Info, PVOID param);
 
-BOOL EnumInstalledApplications(INT EnumType, BOOL IsUserKey, APPENUMPROC lpEnumProc);
-BOOL GetApplicationString(HKEY hKey, LPCWSTR lpKeyName, LPWSTR szString);
-BOOL GetApplicationString(HKEY hKey, LPCWSTR RegName, ATL::CStringW &String);
+class CInstalledApps
+{
+    ATL::CAtlList<CInstalledApplicationInfo *> m_InfoList;
 
-BOOL ShowInstalledAppInfo(INT Index);
-BOOL UninstallApplication(INT Index, BOOL bModify);
-VOID RemoveAppFromRegistry(INT Index);
+public:
+    BOOL Enum(INT EnumType, APPENUMPROC lpEnumProc, PVOID param);
+
+    VOID FreeCachedEntries();
+};
+

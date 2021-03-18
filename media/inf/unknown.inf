@@ -20,6 +20,9 @@ HKR, , Icon,           0, "-18"
 ReactOS = "ReactOS Team"
 UnknownClassName = "Other Devices"
 
+[Strings.0404]
+UnknownClassName = "其他裝置"
+
 [Strings.0405]
 UnknownClassName = "Ostatní zařízení"
 
@@ -30,8 +33,12 @@ UnknownClassName = "Andere Geräte"
 ReactOS = "Equipo de ReactOS"
 UnknownClassName = "Otros dispositivos"
 
+[Strings.040D]
+ReactOS = "צוות ReactOS"
+UnknownClassName = "התקנים אחרים"
+
 [Strings.0415]
-ReactOS = "Ekipa ReactOS"
+ReactOS = "Zespół ReactOS"
 UnknownClassName = "Nieznane urządzenie"
 
 [Strings.0418]
@@ -49,3 +56,7 @@ UnknownClassName = "Başka Aygıtlar"
 [Strings.0422]
 ReactOS = "Команда ReactOS"
 UnknownClassName = "Інші пристрої"
+
+[Strings.0804]
+ReactOS = "ReactOS Team"
+UnknownClassName = "其它设备"

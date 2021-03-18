@@ -1,5 +1,12 @@
 
+add_subdirectory(nt_0600)
+
 spec2def(ntdll.dll def/ntdll.spec ADD_IMPORTLIB)
+
+# Embed RTC libs
+if (STACK_PROTECTOR)
+    target_sources(libntdll PRIVATE $<TARGET_OBJECTS:gcc_ssp_nt>)
+endif()
 
 add_definitions(
     -D__NTDLL__
@@ -19,11 +26,11 @@ list(APPEND SOURCE
     ldr/ldrinit.c
     ldr/ldrpe.c
     ldr/ldrutils.c
+    ldr/verifier.c
     rtl/libsupp.c
     rtl/uilist.c
     rtl/version.c
-    etw/trace.c
-    include/ntdll.h)
+    etw/trace.c)
 
 if(ARCH STREQUAL "i386")
     list(APPEND ASM_SOURCE dispatch/i386/dispatch.S)
@@ -37,11 +44,14 @@ endif()
 
 add_asm_files(ntdll_asm ${ASM_SOURCE})
 
-add_library(ntdll SHARED
+list(APPEND PCH_SKIP_SOURCE
+    ${CMAKE_CURRENT_BINARY_DIR}/ntdll_stubs.c)
+
+add_library(ntdll MODULE
     ${SOURCE}
     ${ntdll_asm}
+    ${PCH_SKIP_SOURCE}
     def/ntdll.rc
-    ${CMAKE_CURRENT_BINARY_DIR}/ntdll_stubs.c
     ${CMAKE_CURRENT_BINARY_DIR}/ntdll.def)
 
 set_module_type(ntdll win32dll ENTRYPOINT 0)
@@ -55,6 +65,11 @@ if(MSVC)
 endif()
 
 target_link_libraries(ntdll rtl ntdllsys libcntpr uuid ${PSEH_LIB})
-add_pch(ntdll include/ntdll.h SOURCE)
+
+if (STACK_PROTECTOR)
+    target_sources(ntdll PRIVATE $<TARGET_OBJECTS:gcc_ssp_nt>)
+endif()
+
+add_pch(ntdll include/ntdll.h "${PCH_SKIP_SOURCE}")
 add_dependencies(ntdll ntstatus asm)
 add_cd_file(TARGET ntdll DESTINATION reactos/system32 NO_CAB FOR all)

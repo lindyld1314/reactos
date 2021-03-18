@@ -16,9 +16,9 @@
 
 /* FUNCTIONS *****************************************************************/
 
+CODE_SEG("INIT")
 LANGID
 NTAPI
-INIT_FUNCTION
 CmpConvertLangId(IN LPWSTR Name,
                  IN ULONG NameLength)
 {
@@ -67,9 +67,9 @@ CmpConvertLangId(IN LPWSTR Name,
     return LangId;
 }
 
+CODE_SEG("INIT")
 HCELL_INDEX
 NTAPI
-INIT_FUNCTION
 CmpWalkPath(IN PHHIVE SystemHive,
             IN HCELL_INDEX ParentCell,
             IN LPWSTR Path)
@@ -98,9 +98,9 @@ CmpWalkPath(IN PHHIVE SystemHive,
     }
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 CmGetSystemControlValues(IN PVOID SystemHiveData,
                          IN PCM_SYSTEM_CONTROL_VECTOR ControlVector)
 {
@@ -261,4 +261,12 @@ CmGetSystemControlValues(IN PVOID SystemHiveData,
     /* Set the defaults for the Thread UI */
     PsDefaultThreadLocaleId = PsDefaultSystemLocaleId;
     PsDefaultUILanguageId = PsInstallUILanguageId;
+}
+
+NTSTATUS
+NTAPI
+CmpSaveBootControlSet(IN USHORT ControlSet)
+{
+    DPRINT1("CmpSaveBootControlSet(%lu)\n", ControlSet);
+    return STATUS_SUCCESS;
 }

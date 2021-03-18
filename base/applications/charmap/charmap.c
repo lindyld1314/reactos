@@ -13,7 +13,7 @@
 #include <richedit.h>
 #include <winnls.h>
 
-#define REMOVE_ADVANCED
+//#define REMOVE_ADVANCED
 
 #define ID_ABOUT    0x1
 
@@ -25,9 +25,54 @@ HICON     hSmIcon;
 HICON     hBgIcon;
 SETTINGS  Settings;
 
-/* GetUName prototype */
-typedef int (WINAPI * GETUNAME)(WORD wCharCode, LPWSTR lpbuf);
-GETUNAME GetUName;
+static
+VOID
+FillCharacterSetComboList(HWND hwndCombo)
+{
+    WCHAR szCharSetText[256];
+    LPWSTR trimmedName;
+    CPINFOEXW cpInfo;
+    INT i;
+
+    if (LoadStringW(hInstance, IDS_UNICODE, szCharSetText, SIZEOF(szCharSetText)))
+    {
+        SendMessageW(hwndCombo,
+                     CB_ADDSTRING,
+                     0,
+                     (LPARAM)szCharSetText);
+    }
+
+    for (i = 0; i < SIZEOF(codePages); i++)
+    {
+        if (GetCPInfoExW(codePages[i], 0, &cpInfo))
+        {
+            trimmedName = wcschr(cpInfo.CodePageName, L'(');
+            if (!trimmedName) 
+                trimmedName = cpInfo.CodePageName;
+
+            SendMessageW(hwndCombo,
+                         CB_ADDSTRING,
+                         0,
+                         (LPARAM)trimmedName);
+        }
+    }
+
+    SendMessageW(hwndCombo, CB_SETCURSEL, 0, 0);
+}
+
+static
+VOID
+FillGroupByComboList(HWND hwndCombo)
+{
+    WCHAR szAllText[256];
+
+    if (LoadStringW(hInstance, IDS_ALL, szAllText, SIZEOF(szAllText)))
+    {
+        SendMessageW(hwndCombo, CB_ADDSTRING, 0, (LPARAM)szAllText);
+    }
+
+    SendMessageW(hwndCombo, CB_SETCURSEL, 0, 0);
+}
 
 /* Font-enumeration callback */
 static
@@ -165,7 +210,7 @@ CopyCharacters(HWND hDlg)
 
     // Test if the whose text is unselected
     if(dwStart == dwEnd) {
-        
+
         // Select the whole text
         SendMessageW(hText, EM_SETSEL, 0, -1);
 
@@ -268,12 +313,9 @@ UpdateStatusBar(WCHAR wch)
     WCHAR buff[MAX_PATH];
     WCHAR szDesc[MAX_PATH];
 
-    if (GetUName)
-    {
-        GetUName(wch, szDesc);
-        wsprintfW(buff, L"U+%04X: %s", wch, szDesc);
-        SendMessageW(hStatusWnd, SB_SETTEXT, 0, (LPARAM)buff);
-    }
+    GetUName(wch, szDesc);
+    wsprintfW(buff, L"U+%04X: %s", wch, szDesc);
+    SendMessageW(hStatusWnd, SB_SETTEXT, 0, (LPARAM)buff);
 }
 
 static
@@ -283,18 +325,26 @@ ChangeView(HWND hWnd)
     RECT rcCharmap;
 #ifndef REMOVE_ADVANCED
     RECT rcAdvanced;
+#else
+    RECT rcCopy;
 #endif
     RECT rcPanelExt;
     RECT rcPanelInt;
     RECT rcStatus;
     UINT DeX, DeY;
-    UINT xPos, yPos;
+    LONG xPos, yPos;
     UINT Width, Height;
     UINT DeskTopWidth, DeskTopHeight;
+#ifdef REMOVE_ADVANCED
+    HWND hCopy;
+#endif
 
     GetClientRect(hCharmapDlg, &rcCharmap);
 #ifndef REMOVE_ADVANCED
     GetClientRect(hAdvancedDlg, &rcAdvanced);
+#else
+    hCopy = GetDlgItem(hCharmapDlg, IDC_COPY);
+    GetClientRect(hCopy, &rcCopy);
 #endif
     GetWindowRect(hWnd, &rcPanelExt);
     GetClientRect(hWnd, &rcPanelInt);
@@ -319,12 +369,17 @@ ChangeView(HWND hWnd)
 #ifndef REMOVE_ADVANCED
     if (Settings.IsAdvancedView)
         Height += rcAdvanced.bottom;
+#else
+    /* The lack of advanced button leaves an empty gap at the bottom of the window.
+       Shrink the window height a bit here to accomodate for that lost control. */
+    Height = rcCharmap.bottom + rcCopy.bottom + 10;
 #endif
+    // FIXME: This fails on multi monitor setups
     if ((xPos + Width) > DeskTopWidth)
-        xPos += DeskTopWidth - (xPos + Width);
+        xPos = DeskTopWidth - Width;
 
     if ((yPos + Height) > DeskTopHeight)
-        yPos += DeskTopHeight - (yPos + Height);
+        yPos = DeskTopHeight - Height;
 
     MoveWindow(hWnd,
                xPos, yPos,
@@ -433,6 +488,26 @@ AdvancedDlgProc(HWND hDlg,
         case WM_INITDIALOG:
             return TRUE;
 
+        case WM_COMMAND:
+        {
+            switch (LOWORD(wParam))
+            {
+                case IDC_COMBO_CHARSET:
+                    if (HIWORD(wParam) == CBN_SELCHANGE)
+                    {
+                        INT idx = (INT)SendMessageW((HWND)lParam,
+                                                    CB_GETCURSEL,
+                                                    0, 0);
+                        SendMessageW(GetDlgItem(hCharmapDlg, IDC_FONTMAP),
+                                     FM_SETCHARMAP,
+                                     idx, 0);
+
+                        EnableWindow(GetDlgItem(hAdvancedDlg, IDC_EDIT_UNICODE), idx == 0);
+                    }
+                    break;
+            }
+        }
+
         default:
             return FALSE;
     }
@@ -451,11 +526,21 @@ PanelOnCreate(HWND hWnd, WPARAM wParam, LPARAM lParam)
                                MAKEINTRESOURCE(IDD_CHARMAP),
                                hWnd,
                                CharMapDlgProc);
+
+    // For now, the Help push button is disabled because of lacking of HTML Help support
+    EnableWindow(GetDlgItem(hCharmapDlg, IDC_CMHELP), FALSE);
+
 #ifndef REMOVE_ADVANCED
     hAdvancedDlg = CreateDialog(hInstance,
                                 MAKEINTRESOURCE(IDD_ADVANCED),
                                 hWnd,
                                 AdvancedDlgProc);
+
+    FillCharacterSetComboList(GetDlgItem(hAdvancedDlg, IDC_COMBO_CHARSET));
+
+    FillGroupByComboList(GetDlgItem(hAdvancedDlg, IDC_COMBO_GROUPBY));
+    EnableWindow(GetDlgItem(hAdvancedDlg, IDC_COMBO_GROUPBY), FALSE);   // FIXME: Implement
+    EnableWindow(GetDlgItem(hAdvancedDlg, IDC_BUTTON_SEARCH), FALSE);   // FIXME: Implement
 #endif
     hStatusWnd = CreateWindow(STATUSCLASSNAME,
                               NULL,
@@ -591,7 +676,6 @@ wWinMain(HINSTANCE hInst,
     INT Ret = 1;
     HMODULE hRichEd20;
     MSG Msg;
-    HINSTANCE hGetUName = NULL;
 
     hInstance = hInst;
     
@@ -609,18 +693,6 @@ wWinMain(HINSTANCE hInst,
     iccx.dwSize = sizeof(INITCOMMONCONTROLSEX);
     iccx.dwICC = ICC_TAB_CLASSES;
     InitCommonControlsEx(&iccx);
-
-    /* Loading the GetUName function */
-    hGetUName = LoadLibraryW(L"getuname.dll");
-    if (hGetUName != NULL)
-    {
-        GetUName = (GETUNAME) GetProcAddress(hGetUName, "GetUName");
-        if (GetUName == NULL)
-        {
-            FreeLibrary(hGetUName);
-            hGetUName = NULL;
-        }
-    }
 
     if (RegisterMapClasses(hInstance))
     {
@@ -646,9 +718,6 @@ wWinMain(HINSTANCE hInst,
         }
         UnregisterMapClasses(hInstance);
     }
-
-    if (hGetUName != NULL)
-        FreeLibrary(hGetUName);
 
     return Ret;
 }

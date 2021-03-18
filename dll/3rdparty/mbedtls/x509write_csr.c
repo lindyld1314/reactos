@@ -2,7 +2,30 @@
  *  X.509 Certificate Signing Request writing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,6 +40,8 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ *  **********
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
@@ -50,9 +75,19 @@ static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = v; while( n-- ) *p++ = 0;
 }
 
+/*
+ * For the currently used signature algorithms the buffer to store any signature
+ * must be at least of size MAX(MBEDTLS_ECDSA_MAX_LEN, MBEDTLS_MPI_MAX_SIZE)
+ */
+#if MBEDTLS_ECDSA_MAX_LEN > MBEDTLS_MPI_MAX_SIZE
+#define SIGNATURE_MAX_SIZE MBEDTLS_ECDSA_MAX_LEN
+#else
+#define SIGNATURE_MAX_SIZE MBEDTLS_MPI_MAX_SIZE
+#endif
+
 void mbedtls_x509write_csr_init( mbedtls_x509write_csr *ctx )
 {
-    memset( ctx, 0, sizeof(mbedtls_x509write_csr) );
+    memset( ctx, 0, sizeof( mbedtls_x509write_csr ) );
 }
 
 void mbedtls_x509write_csr_free( mbedtls_x509write_csr *ctx )
@@ -60,7 +95,7 @@ void mbedtls_x509write_csr_free( mbedtls_x509write_csr *ctx )
     mbedtls_asn1_free_named_data_list( &ctx->subject );
     mbedtls_asn1_free_named_data_list( &ctx->extensions );
 
-    mbedtls_zeroize( ctx, sizeof(mbedtls_x509write_csr) );
+    mbedtls_zeroize( ctx, sizeof( mbedtls_x509write_csr ) );
 }
 
 void mbedtls_x509write_csr_set_md_alg( mbedtls_x509write_csr *ctx, mbedtls_md_type_t md_alg )
@@ -87,20 +122,39 @@ int mbedtls_x509write_csr_set_extension( mbedtls_x509write_csr *ctx,
                                0, val, val_len );
 }
 
+static size_t csr_get_unused_bits_for_named_bitstring( unsigned char bitstring,
+                                                       size_t bit_offset )
+{
+    size_t unused_bits;
+
+     /* Count the unused bits removing trailing 0s */
+    for( unused_bits = bit_offset; unused_bits < 8; unused_bits++ )
+        if( ( ( bitstring >> unused_bits ) & 0x1 ) != 0 )
+            break;
+
+     return( unused_bits );
+}
+
 int mbedtls_x509write_csr_set_key_usage( mbedtls_x509write_csr *ctx, unsigned char key_usage )
 {
     unsigned char buf[4];
     unsigned char *c;
+    size_t unused_bits;
     int ret;
 
     c = buf + 4;
 
-    if( ( ret = mbedtls_asn1_write_bitstring( &c, buf, &key_usage, 7 ) ) != 4 )
+    unused_bits = csr_get_unused_bits_for_named_bitstring( key_usage, 0 );
+    ret = mbedtls_asn1_write_bitstring( &c, buf, &key_usage, 8 - unused_bits );
+
+    if( ret < 0 )
         return( ret );
+    else if( ret < 3 || ret > 4 )
+        return( MBEDTLS_ERR_X509_INVALID_FORMAT );
 
     ret = mbedtls_x509write_csr_set_extension( ctx, MBEDTLS_OID_KEY_USAGE,
                                        MBEDTLS_OID_SIZE( MBEDTLS_OID_KEY_USAGE ),
-                                       buf, 4 );
+                                       c, (size_t)ret );
     if( ret != 0 )
         return( ret );
 
@@ -112,16 +166,25 @@ int mbedtls_x509write_csr_set_ns_cert_type( mbedtls_x509write_csr *ctx,
 {
     unsigned char buf[4];
     unsigned char *c;
+    size_t unused_bits;
     int ret;
 
     c = buf + 4;
 
-    if( ( ret = mbedtls_asn1_write_bitstring( &c, buf, &ns_cert_type, 8 ) ) != 4 )
+    unused_bits = csr_get_unused_bits_for_named_bitstring( ns_cert_type, 0 );
+    ret = mbedtls_asn1_write_bitstring( &c,
+                                        buf,
+                                        &ns_cert_type,
+                                        8 - unused_bits );
+
+    if( ret < 0 )
+        return( ret );
+    else if( ret < 3 || ret > 4 )
         return( ret );
 
     ret = mbedtls_x509write_csr_set_extension( ctx, MBEDTLS_OID_NS_CERT_TYPE,
                                        MBEDTLS_OID_SIZE( MBEDTLS_OID_NS_CERT_TYPE ),
-                                       buf, 4 );
+                                       c, (size_t)ret );
     if( ret != 0 )
         return( ret );
 
@@ -137,7 +200,7 @@ int mbedtls_x509write_csr_der( mbedtls_x509write_csr *ctx, unsigned char *buf, s
     size_t sig_oid_len = 0;
     unsigned char *c, *c2;
     unsigned char hash[64];
-    unsigned char sig[MBEDTLS_MPI_MAX_SIZE];
+    unsigned char sig[SIGNATURE_MAX_SIZE];
     unsigned char tmp_buf[2048];
     size_t pub_len = 0, sig_and_oid_len = 0, sig_len;
     size_t len = 0;
@@ -194,16 +257,25 @@ int mbedtls_x509write_csr_der( mbedtls_x509write_csr *ctx, unsigned char *buf, s
     /*
      * Prepare signature
      */
-    mbedtls_md( mbedtls_md_info_from_type( ctx->md_alg ), c, len, hash );
-
-    pk_alg = mbedtls_pk_get_type( ctx->key );
-    if( pk_alg == MBEDTLS_PK_ECKEY )
-        pk_alg = MBEDTLS_PK_ECDSA;
+    ret = mbedtls_md( mbedtls_md_info_from_type( ctx->md_alg ), c, len, hash );
+    if( ret != 0 )
+        return( ret );
 
     if( ( ret = mbedtls_pk_sign( ctx->key, ctx->md_alg, hash, 0, sig, &sig_len,
-                         f_rng, p_rng ) ) != 0 ||
-        ( ret = mbedtls_oid_get_oid_by_sig_alg( pk_alg, ctx->md_alg,
-                                        &sig_oid, &sig_oid_len ) ) != 0 )
+                                 f_rng, p_rng ) ) != 0 )
+    {
+        return( ret );
+    }
+
+    if( mbedtls_pk_can_do( ctx->key, MBEDTLS_PK_RSA ) )
+        pk_alg = MBEDTLS_PK_RSA;
+    else if( mbedtls_pk_can_do( ctx->key, MBEDTLS_PK_ECDSA ) )
+        pk_alg = MBEDTLS_PK_ECDSA;
+    else
+        return( MBEDTLS_ERR_X509_INVALID_ALG );
+
+    if( ( ret = mbedtls_oid_get_oid_by_sig_alg( pk_alg, ctx->md_alg,
+                                                &sig_oid, &sig_oid_len ) ) != 0 )
     {
         return( ret );
     }

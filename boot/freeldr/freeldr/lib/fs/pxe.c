@@ -20,11 +20,10 @@
 #include <freeldr.h>
 
 #include <debug.h>
+DBG_DEFAULT_CHANNEL(FILESYSTEM);
 
 #define TAG_PXE_FILE 'FexP'
 #define NO_FILE ((ULONG)-1)
-
-DBG_DEFAULT_CHANNEL(FILESYSTEM);
 
 static IP4 _ServerIP = { 0, };
 static ULONG _OpenFile = NO_FILE;
@@ -32,8 +31,7 @@ static CHAR _OpenFileName[128];
 static ULONG _FileSize = 0;
 static ULONG _FilePosition = 0;
 static ULONG _PacketPosition = 0;
-static UCHAR _Packet[4096];
-static UCHAR* _CachedFile = NULL;
+static UCHAR _Packet[1024]; // Should be a value which can be transferred well in one packet over the network
 static ULONG _CachedLength = 0;
 
 static PPXE
@@ -45,9 +43,9 @@ FindPxeStructure(VOID)
 
     /* Find the '!PXE' structure */
     Ptr = (PPXE)0xA0000;
-    while ((ULONG)Ptr > 0x10000)
+    while ((ULONG_PTR)Ptr > 0x10000)
     {
-        Ptr = (PPXE)((ULONG)Ptr - 0x10);
+        Ptr = (PPXE)((ULONG_PTR)Ptr - 0x10);
 
         /* Look for signature */
         if (memcmp(Ptr, "!PXE", 4) != 0)
@@ -128,11 +126,6 @@ static ARC_STATUS PxeClose(ULONG FileId)
         return EIO;
 
     _OpenFile = NO_FILE;
-    if (_CachedFile)
-    {
-        FrLdrTempFree(_CachedFile, TAG_PXE_FILE);
-        _CachedFile = NULL;
-    }
     return ESUCCESS;
 }
 
@@ -144,6 +137,9 @@ static ARC_STATUS PxeGetFileInformation(ULONG FileId, FILEINFORMATION* Informati
     RtlZeroMemory(Information, sizeof(*Information));
     Information->EndingAddress.LowPart = _FileSize;
     Information->CurrentAddress.LowPart = _FilePosition;
+
+    TRACE("PxeGetFileInformation(%lu) -> FileSize = %lu, FilePointer = 0x%lx\n",
+          FileId, Information->EndingAddress.LowPart, Information->CurrentAddress.LowPart);
 
     return ESUCCESS;
 }
@@ -184,11 +180,6 @@ static ARC_STATUS PxeOpen(CHAR* Path, OPENMODE OpenMode, ULONG* FileId)
     }
 
     _FileSize = sizeData.FileSize;
-    if (_FileSize < 1024 * 1024)
-    {
-        _CachedFile = FrLdrTempAlloc(_FileSize, TAG_PXE_FILE);
-        // Don't check for allocation failure, we support _CachedFile == NULL
-    }
     _CachedLength = 0;
 
     RtlZeroMemory(&openData, sizeof(openData));
@@ -197,14 +188,7 @@ static ARC_STATUS PxeOpen(CHAR* Path, OPENMODE OpenMode, ULONG* FileId)
     openData.PacketSize = sizeof(_Packet);
 
     if (!CallPxe(PXENV_TFTP_OPEN, &openData))
-    {
-        if (_CachedFile)
-        {
-            FrLdrTempFree(_CachedFile, TAG_PXE_FILE);
-            _CachedFile = NULL;
-        }
         return ENOENT;
-    }
 
     _FilePosition = 0;
     _PacketPosition = 0;
@@ -224,8 +208,8 @@ static ARC_STATUS PxeRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
         return EBADF;
 
     RtlZeroMemory(&readData, sizeof(readData));
-    readData.Buffer.segment = ((UINT32)_Packet & 0xf0000) / 16;
-    readData.Buffer.offset = (UINT32)_Packet & 0xffff;
+    readData.Buffer.segment = ((ULONG_PTR)_Packet & 0xf0000) / 16;
+    readData.Buffer.offset = (ULONG_PTR)_Packet & 0xffff;
 
     // Get new packets as required
     while (N > 0)
@@ -234,10 +218,7 @@ static ARC_STATUS PxeRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
             i = N;
         else
             i = _CachedLength - _FilePosition;
-        if (_CachedFile)
-            RtlCopyMemory(Buffer, _CachedFile + _FilePosition, i);
-        else
-            RtlCopyMemory(Buffer, _Packet + _FilePosition - _PacketPosition, i);
+        RtlCopyMemory(Buffer, _Packet + _FilePosition - _PacketPosition, i);
         _FilePosition += i;
         Buffer = (UCHAR*)Buffer + i;
         *Count += i;
@@ -247,8 +228,6 @@ static ARC_STATUS PxeRead(ULONG FileId, VOID* Buffer, ULONG N, ULONG* Count)
 
         if (!CallPxe(PXENV_TFTP_READ, &readData))
             return EIO;
-        if (_CachedFile)
-            RtlCopyMemory(_CachedFile + _CachedLength, _Packet, readData.BufferSize);
         _PacketPosition = _CachedLength;
         _CachedLength += readData.BufferSize;
     }
@@ -266,7 +245,7 @@ static ARC_STATUS PxeSeek(ULONG FileId, LARGE_INTEGER* Position, SEEKMODE SeekMo
     if (Position->HighPart != 0 || SeekMode != SeekAbsolute)
         return EINVAL;
 
-    if (!_CachedFile && Position->LowPart < _FilePosition)
+    if (Position->LowPart < _FilePosition)
     {
         // Close and reopen the file to go to position 0
         if (PxeClose(FileId) != ESUCCESS)
@@ -276,18 +255,14 @@ static ARC_STATUS PxeSeek(ULONG FileId, LARGE_INTEGER* Position, SEEKMODE SeekMo
     }
 
     RtlZeroMemory(&readData, sizeof(readData));
-    readData.Buffer.segment = ((UINT32)_Packet & 0xf0000) / 16;
-    readData.Buffer.offset = (UINT32)_Packet & 0xffff;
+    readData.Buffer.segment = ((ULONG_PTR)_Packet & 0xf0000) / 16;
+    readData.Buffer.offset = (ULONG_PTR)_Packet & 0xffff;
 
     // Get new packets as required
     while (Position->LowPart > _CachedLength)
     {
         if (!CallPxe(PXENV_TFTP_READ, &readData))
             return EIO;
-        if (_CachedFile)
-        {
-            RtlCopyMemory(_CachedFile + _CachedLength, _Packet, readData.BufferSize);
-        }
         _PacketPosition = _CachedLength;
         _CachedLength += readData.BufferSize;
     }
@@ -363,7 +338,7 @@ static BOOLEAN GetCachedInfo(VOID)
         return FALSE;
     if (Data.BufferSize < 36)
         return FALSE;
-    Packet = (UCHAR*)((UINT32)(Data.Buffer.segment << 4) + Data.Buffer.offset);
+    Packet = (UCHAR*)((ULONG_PTR)(Data.Buffer.segment << 4) + Data.Buffer.offset);
     RtlCopyMemory(&_ServerIP, Packet + 20, sizeof(IP4));
     return TRUE;
 }

@@ -1,5 +1,4 @@
 
-set_cpp()
 
 include_directories(
     BEFORE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -20,14 +19,14 @@ list(APPEND SOURCE
     ros_glue/ros_glue.cpp
     stdafx.h)
 
-add_library(uniata SHARED ${SOURCE} idedma.rc)
+add_library(uniata MODULE ${SOURCE} idedma.rc)
 
 if(USE_CLANG_CL OR (NOT MSVC))
-    add_target_compile_flags(uniata "-Wno-narrowing")
+    target_compile_options(uniata PRIVATE "-Wno-narrowing")
     if(USE_CLANG_CL)
-        add_target_compile_flags(uniata "-Wno-unused-const-variable")
+        target_compile_options(uniata PRIVATE "-Wno-unused-const-variable")
     else()
-        add_target_compile_flags(uniata "-Wno-unused-but-set-variable")
+        target_compile_options(uniata PRIVATE "-Wno-unused-but-set-variable")
     endif()
 endif()
 
@@ -36,3 +35,4 @@ set_module_type(uniata kernelmodedriver)
 add_importlibs(uniata scsiport ntoskrnl hal)
 add_cd_file(TARGET uniata DESTINATION reactos/system32/drivers NO_CAB FOR all)
 add_registry_inf(uniata_reg.inf)
+add_driver_inf(uniata uniata_comm.inf)

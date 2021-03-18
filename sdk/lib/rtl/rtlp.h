@@ -243,4 +243,15 @@ WCHAR
 NTAPI
 RtlpDowncaseUnicodeChar(IN WCHAR Source);
 
+/* ReactOS only */
+VOID
+NTAPI
+LdrpInitializeProcessCompat(PVOID pProcessActctx, PVOID* pOldShimData);
+
+PVOID
+NTAPI
+RtlpDebugBufferCommit(_Inout_ PRTL_DEBUG_INFORMATION Buffer,
+                      _In_ SIZE_T Size);
+
+
 /* EOF */

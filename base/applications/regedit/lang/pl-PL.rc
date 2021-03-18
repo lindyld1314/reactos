@@ -139,9 +139,17 @@ BEGIN
         MENUITEM "Z&mień nazwę", ID_TREE_RENAME
         MENUITEM SEPARATOR
         MENUITEM "&Eksportuj", ID_TREE_EXPORT
-        MENUITEM "&Uprawnienia..", ID_TREE_PERMISSIONS, GRAYED
+        MENUITEM "&Uprawnienia..", ID_TREE_PERMISSIONS
         MENUITEM SEPARATOR
         MENUITEM "&Kopiuj nazwę klucza", ID_EDIT_COPYKEYNAME
+    END
+    POPUP ""
+    BEGIN
+        MENUITEM "Rozwiń/Zwiń", ID_TREE_EXPANDBRANCH
+        MENUITEM SEPARATOR
+        MENUITEM "&Eksportuj", ID_TREE_EXPORT
+        MENUITEM SEPARATOR
+        MENUITEM "Wyładuj Drzewo..", ID_REGISTRY_UNLOADHIVE, GRAYED
     END
     POPUP ""
     BEGIN
@@ -363,7 +371,7 @@ BEGIN
     IDS_FLT_REGFILE "Plik rejestru"
     IDS_FLT_REGFILES "Pliki rejestru (*.reg)"
     IDS_FLT_REGFILES_FLT "*.reg"
-    IDS_FLT_HIVFILES "Registry Hive Files (*.*)"
+    IDS_FLT_HIVFILES "Pliki Drzewa (*.*)"
     IDS_FLT_HIVFILES_FLT "*.*"
     IDS_FLT_REGEDIT4 "Pliki rejestru Win9x/NT4 (REGEDIT4) (*.reg)"
     IDS_FLT_REGEDIT4_FLT "*.reg"

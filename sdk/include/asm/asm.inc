@@ -9,8 +9,10 @@
 #ifndef __ASM_INC__
 #define __ASM_INC__
 
-/* Common definitions for FPO macro
-   see http://msdn.microsoft.com/en-us/library/ms679352%28VS.85%29.aspx */
+/*
+ * Common definitions for the FPO macro.
+ * See https://docs.microsoft.com/en-us/windows/desktop/api/winnt/ns-winnt-_fpo_data
+ */
 #define FRAME_FPO    0
 #define FRAME_TRAP   1
 #define FRAME_TSS    2
@@ -25,7 +27,7 @@ OPTION DOTNAME
 .686P
 .XMM
 .MODEL FLAT
-ASSUME CS:NOTHING, DS:NOTHING, ES:NOTHING, FS:NOTHING, GS:NOTHING
+ASSUME FS:NOTHING, GS:NOTHING
 #endif
 
 /* Explicit radix in MASM syntax  */
@@ -65,8 +67,10 @@ GLOBAL_LABEL MACRO label
     %label::
 ENDM
 
-/* check http://msdn.microsoft.com/en-us/library/9c9k076y%28VS.80%29.aspx
-   and http://msdn.microsoft.com/en-us/library/ms679352%28VS.85%29.aspx */
+/*
+ * See https://docs.microsoft.com/en-us/cpp/assembler/masm/dot-fpo
+ * and https://docs.microsoft.com/en-us/windows/desktop/api/winnt/ns-winnt-_fpo_data
+ */
 FPO MACRO cdwLocals, cdwParams, cbProlog, cbRegs, fUseBP, cbFrame
     .FPO (cdwLocals, cdwParams, cbProlog, cbRegs, fUseBP, cbFrame)
 ENDM
@@ -100,7 +104,7 @@ ENDM
 
 .code16 MACRO
     ASSUME nothing
-    .text SEGMENT use16
+    .text SEGMENT use16 PUBLIC 'CODE'
     .586P
 ENDM
 
@@ -136,8 +140,12 @@ ENDM
     dd args
 ENDM
 
-.double MACRO args:VARARG
+.quad MACRO args:VARARG
     dq args
+ENDM
+
+.double MACRO args:VARARG
+    real8 args
 ENDM
 
 .org MACRO value
@@ -227,6 +235,9 @@ ENDM
 /* Force intel syntax */
 .intel_syntax noprefix
 
+/* Put dwarf debug info in the .dwarf_debug section, which will be properly stripped */
+.cfi_sections .debug_frame
+
 .altmacro
 
 /* Explicit radix in GAS syntax */
@@ -237,6 +248,10 @@ ENDM
 
 /* Macro values need to be marked */
 #define VAL(x) \x
+
+#define CR  "\r"
+#define LF  "\n"
+#define NUL "\0"
 
 /* Due to MASM's reverse syntax, we are forced to use a precompiler macro */
 #define MACRO(...) .macro __VA_ARGS__
@@ -309,8 +324,14 @@ ENDM
     .text
 .endm
 
-/* check http://msdn.microsoft.com/en-us/library/9c9k076y%28VS.80%29.aspx
-   and http://msdn.microsoft.com/en-us/library/ms679352%28VS.85%29.aspx */
+.macro .const
+    .section .rdata
+.endm
+
+/*
+ * See https://docs.microsoft.com/en-us/cpp/assembler/masm/dot-fpo
+ * and https://docs.microsoft.com/en-us/windows/desktop/api/winnt/ns-winnt-_fpo_data
+ */
 .macro FPO cdwLocals, cdwParams, cbProlog, cbRegs, fUseBP, cbFrame
     .if (cbFrame == FRAME_TRAP)
         .cfi_signal_frame
@@ -369,14 +390,15 @@ code = 1
 .endm
 
 .macro UNIMPLEMENTED2 file, line, func
-    jmp 3f
-1:  .asciz "\func"
-2:  .asciz \file
-3:
+    jmp 4f
+1:  .ascii "Unimplemented", CR, LF, NUL
+2:  .asciz "\func"
+3:  .asciz \file
+4:
     sub rsp, 0x20
-    lea rcx, MsgUnimplemented[rip]
-    lea rdx, 1b[rip]
-    lea r8, 2b[rip]
+    lea rcx, 1b[rip]
+    lea rdx, 2b[rip]
+    lea r8, 3b[rip]
     mov r9, \line
     call DbgPrint
     add rsp, 0x20
@@ -389,10 +411,6 @@ code = 1
 #define endif .endif
 #define else .else
 #define elseif .elseif
-
-#define CR  "\r"
-#define LF  "\n"
-#define NUL "\0"
 
 /* CFI annotations */
 #define CFI_STARTPROC .cfi_startproc

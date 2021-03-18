@@ -560,7 +560,7 @@ SaveSettings(VOID)
                     Settings.wpPos.rcNormalPosition.bottom,
                     Settings.wpPos.showCmd);
 
-    dwSize = wcslen(buffer) * sizeof(WCHAR);
+    dwSize = (DWORD)(wcslen(buffer) * sizeof(WCHAR));
     RegSetValueExW(hKeyEventVwr, L"Window", 0, REG_SZ, (LPBYTE)buffer, dwSize);
 
 Quit:
@@ -1173,9 +1173,9 @@ FormatInteger(LONGLONG Num, LPWSTR pwszResult, UINT cchResultMax)
 UINT
 FormatByteSize(LONGLONG cbSize, LPWSTR pwszResult, UINT cchResultMax)
 {
-    INT cchWritten;
+    UINT cchWritten, cchRemaining;
     LPWSTR pwszEnd;
-    size_t cchRemaining;
+    size_t cchStringRemaining;
 
     /* Write formated bytes count */
     cchWritten = FormatInteger(cbSize, pwszResult, cchResultMax);
@@ -1185,7 +1185,8 @@ FormatByteSize(LONGLONG cbSize, LPWSTR pwszResult, UINT cchResultMax)
     /* Copy " bytes" to buffer */
     pwszEnd = pwszResult + cchWritten;
     cchRemaining = cchResultMax - cchWritten;
-    StringCchCopyExW(pwszEnd, cchRemaining, L" ", &pwszEnd, &cchRemaining, 0);
+    StringCchCopyExW(pwszEnd, cchRemaining, L" ", &pwszEnd, &cchStringRemaining, 0);
+    cchRemaining = (UINT)cchStringRemaining;
     cchWritten = LoadStringW(hInst, IDS_BYTES_FORMAT, pwszEnd, cchRemaining);
     cchRemaining -= cchWritten;
 
@@ -1195,9 +1196,9 @@ FormatByteSize(LONGLONG cbSize, LPWSTR pwszResult, UINT cchResultMax)
 LPWSTR
 FormatFileSizeWithBytes(const PULARGE_INTEGER lpQwSize, LPWSTR pwszResult, UINT cchResultMax)
 {
-    UINT cchWritten;
+    UINT cchWritten, cchRemaining;
     LPWSTR pwszEnd;
-    size_t cchRemaining;
+    size_t cchCopyRemaining;
 
     /* Format bytes in KBs, MBs etc */
     if (StrFormatByteSizeW(lpQwSize->QuadPart, pwszResult, cchResultMax) == NULL)
@@ -1208,10 +1209,11 @@ FormatFileSizeWithBytes(const PULARGE_INTEGER lpQwSize, LPWSTR pwszResult, UINT 
         return pwszResult;
 
     /* Concatenate " (" */
-    cchWritten = wcslen(pwszResult);
+    cchWritten = (UINT)wcslen(pwszResult);
     pwszEnd = pwszResult + cchWritten;
     cchRemaining = cchResultMax - cchWritten;
-    StringCchCopyExW(pwszEnd, cchRemaining, L" (", &pwszEnd, &cchRemaining, 0);
+    StringCchCopyExW(pwszEnd, cchRemaining, L" (", &pwszEnd, &cchCopyRemaining, 0);
+    cchRemaining = (UINT)cchCopyRemaining;
 
     /* Write formated bytes count */
     cchWritten = FormatByteSize(lpQwSize->QuadPart, pwszEnd, cchRemaining);
@@ -1231,7 +1233,8 @@ GetFileTimeString(LPFILETIME lpFileTime, LPWSTR pwszResult, UINT cchResult)
     FILETIME ft;
     SYSTEMTIME st;
     int cchWritten;
-    size_t cchRemaining = cchResult;
+    UINT cchRemaining = cchResult;
+    size_t cchCopyRemaining;
     LPWSTR pwszEnd = pwszResult;
 
     if (!FileTimeToLocalFileTime(lpFileTime, &ft) || !FileTimeToSystemTime(&ft, &st))
@@ -1246,7 +1249,8 @@ GetFileTimeString(LPFILETIME lpFileTime, LPWSTR pwszResult, UINT cchResult)
     cchRemaining -= cchWritten;
     pwszEnd += cchWritten;
 
-    StringCchCopyExW(pwszEnd, cchRemaining, L", ", &pwszEnd, &cchRemaining, 0);
+    StringCchCopyExW(pwszEnd, cchRemaining, L", ", &pwszEnd, &cchCopyRemaining, 0);
+    cchRemaining = (UINT)cchCopyRemaining;
 
     cchWritten = GetTimeFormatW(LOCALE_USER_DEFAULT, 0, &st, NULL, pwszEnd, cchRemaining);
     if (cchWritten)
@@ -1294,7 +1298,7 @@ AllocEventLog(IN PCWSTR ComputerName OPTIONAL,
               IN BOOL Permanent)
 {
     PEVENTLOG EventLog;
-    UINT cchName;
+    SIZE_T cchName;
 
     /* Allocate a new event log entry */
     EventLog = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*EventLog));
@@ -1467,7 +1471,7 @@ GetExpandedFilePathName(
     OUT LPWSTR lpFullFileName OPTIONAL,
     IN DWORD nSize)
 {
-    DWORD dwLength;
+    SIZE_T dwLength;
 
     /* Determine the needed size after expansion of any environment strings */
     dwLength = ExpandEnvironmentStringsW(lpFileName, NULL, 0);
@@ -2734,7 +2738,10 @@ GetDisplayNameFileAndID(IN LPCWSTR lpLogName,
     cbKeyPath = (wcslen(EVENTLOG_BASE_KEY) + wcslen(lpLogName) + 1) * sizeof(WCHAR);
     KeyPath = HeapAlloc(GetProcessHeap(), 0, cbKeyPath);
     if (!KeyPath)
+    {
+        ShowWin32Error(ERROR_NOT_ENOUGH_MEMORY);
         return FALSE;
+    }
 
     StringCbCopyW(KeyPath, cbKeyPath, EVENTLOG_BASE_KEY);
     StringCbCatW(KeyPath, cbKeyPath, lpLogName);
@@ -2742,7 +2749,10 @@ GetDisplayNameFileAndID(IN LPCWSTR lpLogName,
     Result = RegOpenKeyExW(hkMachine, KeyPath, 0, KEY_QUERY_VALUE, &hLogKey);
     HeapFree(GetProcessHeap(), 0, KeyPath);
     if (Result != ERROR_SUCCESS)
+    {
+        ShowWin32Error(Result);
         return FALSE;
+    }
 
     cbData = sizeof(szModuleName);
     Result = RegQueryValueExW(hLogKey,
@@ -3841,18 +3851,20 @@ InitPropertiesDlg(HWND hDlg, PEVENTLOG EventLog)
     KeyPath = HeapAlloc(GetProcessHeap(), 0, cbKeyPath);
     if (!KeyPath)
     {
+        ShowWin32Error(ERROR_NOT_ENOUGH_MEMORY);
         goto Quit;
     }
 
     StringCbCopyW(KeyPath, cbKeyPath, EVENTLOG_BASE_KEY);
     StringCbCatW(KeyPath, cbKeyPath, lpLogName);
 
-    if (RegOpenKeyExW(hkMachine, KeyPath, 0, KEY_QUERY_VALUE, &hLogKey) != ERROR_SUCCESS)
+    Result = RegOpenKeyExW(hkMachine, KeyPath, 0, KEY_QUERY_VALUE, &hLogKey);
+    HeapFree(GetProcessHeap(), 0, KeyPath);
+    if (Result != ERROR_SUCCESS)
     {
-        HeapFree(GetProcessHeap(), 0, KeyPath);
+        ShowWin32Error(Result);
         goto Quit;
     }
-    HeapFree(GetProcessHeap(), 0, KeyPath);
 
 
     cbData = sizeof(dwMaxSize);
@@ -3865,7 +3877,8 @@ InitPropertiesDlg(HWND hDlg, PEVENTLOG EventLog)
     if ((Result != ERROR_SUCCESS) || (dwType != REG_DWORD))
     {
         // dwMaxSize = 512 * 1024; /* 512 kBytes */
-        dwMaxSize = 0;
+        /* Workstation: 512 KB; Server: 16384 KB */
+        dwMaxSize = 16384 * 1024;
     }
     /* Convert in KB */
     dwMaxSize /= 1024;
@@ -3879,18 +3892,16 @@ InitPropertiesDlg(HWND hDlg, PEVENTLOG EventLog)
                               &cbData);
     if ((Result != ERROR_SUCCESS) || (dwType != REG_DWORD))
     {
-        /* On Windows 2003 it is 604800 (secs) == 7 days */
+        /* By default, it is 604800 (secs) == 7 days. On Server, the retention is zeroed out. */
         dwRetention = 0;
     }
-    /* Convert in days, rounded up */ // ROUND_UP
-    // dwRetention = ROUND_UP(dwRetention, 24*3600) / (24*3600);
-    dwRetention = (dwRetention + 24*3600 - 1) / (24*3600);
-
+    /* Convert in days, rounded up */    
+    if (dwRetention != INFINITE)
+        dwRetention = (dwRetention + 24*3600 - 1) / (24*3600);
 
     RegCloseKey(hLogKey);
 
     }
-
 
 Quit:
 
@@ -3976,7 +3987,7 @@ Quit:
         SendDlgItemMessageW(hDlg, IDC_UPDOWN_EVENTS_AGE, UDM_SETRANGE, 0, (LPARAM)MAKELONG(365, 1));
 
         SetDlgItemInt(hDlg, IDC_EDIT_MAXLOGSIZE, dwMaxSize, FALSE);
-        SetDlgItemInt(hDlg, IDC_EDIT_EVENTS_AGE, dwRetention, FALSE);
+        SetDlgItemInt(hDlg, IDC_EDIT_EVENTS_AGE, (dwRetention == 0) ? 7 : dwRetention, FALSE);
 
         if (dwRetention == 0)
         {
@@ -4003,11 +4014,71 @@ Quit:
     }
 }
 
+static
+VOID
+SavePropertiesDlg(HWND hDlg, PEVENTLOG EventLog)
+{
+    LPWSTR lpLogName = EventLog->LogName;
+
+    LONG Result;
+    DWORD dwMaxSize = 0, dwRetention = 0;
+    HKEY hLogKey;
+    WCHAR *KeyPath;    
+    SIZE_T cbKeyPath;
+
+    if (!EventLog->Permanent)
+        return;
+
+    cbKeyPath = (wcslen(EVENTLOG_BASE_KEY) + wcslen(lpLogName) + 1) * sizeof(WCHAR);
+    KeyPath = HeapAlloc(GetProcessHeap(), 0, cbKeyPath);
+    if (!KeyPath)
+    {
+        ShowWin32Error(ERROR_NOT_ENOUGH_MEMORY);
+        return;
+    }
+
+    StringCbCopyW(KeyPath, cbKeyPath, EVENTLOG_BASE_KEY);
+    StringCbCatW(KeyPath, cbKeyPath, lpLogName);
+
+    Result = RegOpenKeyExW(hkMachine, KeyPath, 0, KEY_SET_VALUE, &hLogKey);
+    HeapFree(GetProcessHeap(), 0, KeyPath);
+    if (Result != ERROR_SUCCESS)
+    {
+        ShowWin32Error(Result);
+        return;
+    }
+
+    dwMaxSize = GetDlgItemInt(hDlg, IDC_EDIT_MAXLOGSIZE, NULL, FALSE) * 1024;
+    RegSetValueExW(hLogKey,
+                   L"MaxSize",
+                   0,
+                   REG_DWORD,
+                   (LPBYTE)&dwMaxSize,
+                   sizeof(dwMaxSize));    
+
+    if (IsDlgButtonChecked(hDlg, IDC_OVERWRITE_AS_NEEDED) == BST_CHECKED)
+        dwRetention = 0;
+    else if (IsDlgButtonChecked(hDlg, IDC_NO_OVERWRITE) == BST_CHECKED)
+        dwRetention = INFINITE;
+    else // if (IsDlgButtonChecked(hDlg, IDC_OVERWRITE_OLDER_THAN) == BST_CHECKED)
+        dwRetention = GetDlgItemInt(hDlg, IDC_EDIT_EVENTS_AGE, NULL, FALSE) * (24*3600);
+
+    RegSetValueExW(hLogKey,
+                   L"Retention",
+                   0,
+                   REG_DWORD,
+                   (LPBYTE)&dwRetention,
+                   sizeof(dwRetention));
+    
+    RegCloseKey(hLogKey);
+}
+
 /* Message handler for EventLog Properties dialog */
 INT_PTR CALLBACK
 EventLogPropProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     PEVENTLOG EventLog;
+    WCHAR szText[MAX_LOADSTRING];
 
     EventLog = (PEVENTLOG)GetWindowLongPtrW(hDlg, DWLP_USER);
 
@@ -4027,6 +4098,16 @@ EventLogPropProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_DESTROY:
             return (INT_PTR)TRUE;
 
+        case WM_NOTIFY:
+            switch (((LPNMHDR)lParam)->code)
+            {                
+                case PSN_APPLY:
+                    PropSheet_UnChanged(GetParent(hDlg), hDlg);
+                    SavePropertiesDlg(hDlg, EventLog);
+                    return (INT_PTR)TRUE;
+            }
+            break;
+                        
         case WM_COMMAND:
             switch (LOWORD(wParam))
             {
@@ -4035,12 +4116,32 @@ EventLogPropProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     EndDialog(hDlg, LOWORD(wParam));
                     return (INT_PTR)TRUE;
 
+                case ID_CLEARLOG:
+                {
+                    PEVENTLOGFILTER EventLogFilter = GetSelectedFilter(NULL);
+                    if (EventLogFilter && ClearEvents(EventLogFilter))
+                    {
+                        Refresh(EventLogFilter);
+                        InitPropertiesDlg(hDlg, EventLog);
+                    }
+                    return (INT_PTR)TRUE;
+                }
+                
+                case IDC_EDIT_EVENTS_AGE:
+                case IDC_EDIT_MAXLOGSIZE:
+                    if (HIWORD(wParam) == EN_CHANGE)
+                    {
+                        PropSheet_Changed(GetParent(hDlg), hDlg);
+                    }
+                    return (INT_PTR)TRUE;
+                    
                 case IDC_OVERWRITE_AS_NEEDED:
                 {
                     CheckRadioButton(hDlg, IDC_OVERWRITE_AS_NEEDED, IDC_NO_OVERWRITE, IDC_OVERWRITE_AS_NEEDED);
                     EnableDlgItem(hDlg, IDC_EDIT_EVENTS_AGE, FALSE);
                     EnableDlgItem(hDlg, IDC_UPDOWN_EVENTS_AGE, FALSE);
-                    break;
+                    PropSheet_Changed(GetParent(hDlg), hDlg);
+                    return (INT_PTR)TRUE;
                 }
 
                 case IDC_OVERWRITE_OLDER_THAN:
@@ -4048,7 +4149,8 @@ EventLogPropProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     CheckRadioButton(hDlg, IDC_OVERWRITE_AS_NEEDED, IDC_NO_OVERWRITE, IDC_OVERWRITE_OLDER_THAN);
                     EnableDlgItem(hDlg, IDC_EDIT_EVENTS_AGE, TRUE);
                     EnableDlgItem(hDlg, IDC_UPDOWN_EVENTS_AGE, TRUE);
-                    break;
+                    PropSheet_Changed(GetParent(hDlg), hDlg);
+                    return (INT_PTR)TRUE;
                 }
 
                 case IDC_NO_OVERWRITE:
@@ -4056,7 +4158,25 @@ EventLogPropProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     CheckRadioButton(hDlg, IDC_OVERWRITE_AS_NEEDED, IDC_NO_OVERWRITE, IDC_NO_OVERWRITE);
                     EnableDlgItem(hDlg, IDC_EDIT_EVENTS_AGE, FALSE);
                     EnableDlgItem(hDlg, IDC_UPDOWN_EVENTS_AGE, FALSE);
-                    break;
+                    PropSheet_Changed(GetParent(hDlg), hDlg);
+                    return (INT_PTR)TRUE;
+                }
+                
+                case IDC_RESTOREDEFAULTS:
+                {
+                    LoadStringW(hInst, IDS_RESTOREDEFAULTS, szText, _countof(szText));
+
+                    if (MessageBoxW(hDlg, szText, szTitle, MB_YESNO | MB_ICONQUESTION) == IDYES)
+                    {
+                        CheckRadioButton(hDlg, IDC_OVERWRITE_AS_NEEDED, IDC_NO_OVERWRITE, IDC_OVERWRITE_AS_NEEDED);
+                        /* Workstation: 512 KB; Server: 16384 KB */
+                        SetDlgItemInt(hDlg, IDC_EDIT_MAXLOGSIZE, 5120, FALSE);
+                        SetDlgItemInt(hDlg, IDC_EDIT_EVENTS_AGE, 7, FALSE);
+                        EnableDlgItem(hDlg, IDC_EDIT_EVENTS_AGE, FALSE);
+                        EnableDlgItem(hDlg, IDC_UPDOWN_EVENTS_AGE, FALSE);
+                        PropSheet_Changed(GetParent(hDlg), hDlg);
+                    }
+                    return (INT_PTR)TRUE;
                 }
 
                 case IDHELP:
@@ -4124,7 +4244,7 @@ EventLogProperties(HINSTANCE hInstance, HWND hWndParent, PEVENTLOGFILTER EventLo
     psp[1].hInstance   = hInstance;
     psp[1].pszTemplate = MAKEINTRESOURCEW(IDD_GENERAL_PAGE);
     psp[1].pfnDlgProc  = GeneralPageWndProc;
-    psp[0].lParam      = (LPARAM)EventLogFilter->EventLogs[0];
+    psp[1].lParam      = (LPARAM)EventLogFilter->EventLogs[0];
 #endif
 
     /* Create the property sheet */

@@ -105,13 +105,14 @@ if(ARCH STREQUAL "i386")
         math/i386/cilog.c
         math/i386/cipow.c
         math/i386/cisin.c
-        math/i386/cisqrt.c)
+        math/i386/cisqrt.c
+        math/i386/ldexp.c)
     if(NOT MSVC)
         list(APPEND LIBCNTPR_SOURCE except/i386/chkstk_ms.s)
     endif()
 elseif(ARCH STREQUAL "amd64")
     list(APPEND LIBCNTPR_ASM_SOURCE
-        except/amd64/chkstk_asm.s
+        except/amd64/chkstk_ms.s
         except/amd64/seh.s
         setjmp/amd64/setjmp.s
         math/amd64/atan.S
@@ -239,9 +240,9 @@ endif()
 set_source_files_properties(${LIBCNTPR_ASM_SOURCE} PROPERTIES COMPILE_DEFINITIONS "NO_RTL_INLINES;_NTSYSTEM_;_NTDLLBUILD_;_LIBCNT_;__CRT__NO_INLINE;CRTDLL")
 add_asm_files(libcntpr_asm ${LIBCNTPR_ASM_SOURCE})
 
-add_library(libcntpr ${LIBCNTPR_SOURCE} ${libcntpr_asm})
-add_target_compile_definitions(libcntpr
-    NO_RTL_INLINES
+add_library(libcntpr STATIC ${LIBCNTPR_SOURCE} ${libcntpr_asm})
+target_compile_definitions(libcntpr
+ PRIVATE    NO_RTL_INLINES
     _NTSYSTEM_
     _NTDLLBUILD_
     _LIBCNT_

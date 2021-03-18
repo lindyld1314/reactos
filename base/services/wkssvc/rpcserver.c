@@ -83,11 +83,141 @@ __stdcall
 NetrWkstaGetInfo(
     WKSSVC_IDENTIFY_HANDLE ServerName,
     unsigned long Level,
-    LPWKSTA_INFO WkstaInfo)
+    LPWKSTA_INFO *WkstaInfo)
 {
+    WCHAR szComputerName[MAX_COMPUTERNAME_LENGTH + 1];
+    DWORD dwComputerNameLength;
+    LPCWSTR pszLanRoot = L"";
+    PWKSTA_INFO pWkstaInfo = NULL;
+    LSA_OBJECT_ATTRIBUTES ObjectAttributes;
+    LSA_HANDLE PolicyHandle;
+    PPOLICY_PRIMARY_DOMAIN_INFO DomainInfo = NULL;
+    NTSTATUS NtStatus;
+    DWORD dwResult = NERR_Success;
+
     TRACE("NetrWkstaGetInfo level %lu\n", Level);
 
-    return 0;
+    dwComputerNameLength = MAX_COMPUTERNAME_LENGTH + 1;
+    GetComputerNameW(szComputerName, &dwComputerNameLength);
+    dwComputerNameLength++; /* include NULL terminator */
+
+    ZeroMemory(&ObjectAttributes, sizeof(ObjectAttributes));
+    NtStatus = LsaOpenPolicy(NULL,
+                             &ObjectAttributes,
+                             POLICY_VIEW_LOCAL_INFORMATION,
+                             &PolicyHandle);
+    if (NtStatus != STATUS_SUCCESS)
+    {
+        WARN("LsaOpenPolicy() failed (Status 0x%08lx)\n", NtStatus);
+        return LsaNtStatusToWinError(NtStatus);
+    }
+
+    NtStatus = LsaQueryInformationPolicy(PolicyHandle,
+                                         PolicyPrimaryDomainInformation,
+                                         (PVOID*)&DomainInfo);
+
+    LsaClose(PolicyHandle);
+
+    if (NtStatus != STATUS_SUCCESS)
+    {
+        WARN("LsaQueryInformationPolicy() failed (Status 0x%08lx)\n", NtStatus);
+        return LsaNtStatusToWinError(NtStatus);
+    }
+
+    switch (Level)
+    {
+        case 100:
+            pWkstaInfo = midl_user_allocate(sizeof(WKSTA_INFO_100));
+            if (pWkstaInfo == NULL)
+            {
+                dwResult = ERROR_NOT_ENOUGH_MEMORY;
+                break;
+            }
+
+            pWkstaInfo->WkstaInfo100.wki100_platform_id = PLATFORM_ID_NT;
+
+            pWkstaInfo->WkstaInfo100.wki100_computername = midl_user_allocate(dwComputerNameLength * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo100.wki100_computername != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo100.wki100_computername, szComputerName);
+
+            pWkstaInfo->WkstaInfo100.wki100_langroup = midl_user_allocate((wcslen(DomainInfo->Name.Buffer) + 1) * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo100.wki100_langroup != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo100.wki100_langroup, DomainInfo->Name.Buffer);
+
+            pWkstaInfo->WkstaInfo100.wki100_ver_major = VersionInfo.dwMajorVersion;
+            pWkstaInfo->WkstaInfo100.wki100_ver_minor = VersionInfo.dwMinorVersion;
+
+            *WkstaInfo = pWkstaInfo;
+            break;
+
+        case 101:
+            pWkstaInfo = midl_user_allocate(sizeof(WKSTA_INFO_101));
+            if (pWkstaInfo == NULL)
+            {
+                dwResult = ERROR_NOT_ENOUGH_MEMORY;
+                break;
+            }
+
+            pWkstaInfo->WkstaInfo101.wki101_platform_id = PLATFORM_ID_NT;
+
+            pWkstaInfo->WkstaInfo101.wki101_computername = midl_user_allocate(dwComputerNameLength * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo101.wki101_computername != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo101.wki101_computername, szComputerName);
+
+            pWkstaInfo->WkstaInfo101.wki101_langroup = midl_user_allocate((wcslen(DomainInfo->Name.Buffer) + 1) * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo101.wki101_langroup != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo101.wki101_langroup, DomainInfo->Name.Buffer);
+
+            pWkstaInfo->WkstaInfo101.wki101_ver_major = VersionInfo.dwMajorVersion;
+            pWkstaInfo->WkstaInfo101.wki101_ver_minor = VersionInfo.dwMinorVersion;
+
+            pWkstaInfo->WkstaInfo101.wki101_lanroot = midl_user_allocate((wcslen(pszLanRoot) + 1) * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo101.wki101_lanroot != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo101.wki101_lanroot, pszLanRoot);
+
+            *WkstaInfo = pWkstaInfo;
+            break;
+
+        case 102:
+            pWkstaInfo = midl_user_allocate(sizeof(WKSTA_INFO_102));
+            if (pWkstaInfo == NULL)
+            {
+                dwResult = ERROR_NOT_ENOUGH_MEMORY;
+                break;
+            }
+
+            pWkstaInfo->WkstaInfo102.wki102_platform_id = PLATFORM_ID_NT;
+
+            pWkstaInfo->WkstaInfo102.wki102_computername = midl_user_allocate(dwComputerNameLength * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo102.wki102_computername != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo102.wki102_computername, szComputerName);
+
+            pWkstaInfo->WkstaInfo102.wki102_langroup = midl_user_allocate((wcslen(DomainInfo->Name.Buffer) + 1) * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo102.wki102_langroup != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo102.wki102_langroup, DomainInfo->Name.Buffer);
+
+            pWkstaInfo->WkstaInfo102.wki102_ver_major = VersionInfo.dwMajorVersion;
+            pWkstaInfo->WkstaInfo102.wki102_ver_minor = VersionInfo.dwMinorVersion;
+
+            pWkstaInfo->WkstaInfo102.wki102_lanroot = midl_user_allocate((wcslen(pszLanRoot) + 1) * sizeof(WCHAR));
+            if (pWkstaInfo->WkstaInfo102.wki102_lanroot != NULL)
+                wcscpy(pWkstaInfo->WkstaInfo102.wki102_lanroot, pszLanRoot);
+
+            pWkstaInfo->WkstaInfo102.wki102_logged_on_users = 1; /* FIXME */
+
+            *WkstaInfo = pWkstaInfo;
+            break;
+
+        default:
+            FIXME("Level %d unimplemented\n", Level);
+            dwResult = ERROR_INVALID_LEVEL;
+            break;
+    }
+
+    if (DomainInfo != NULL)
+        LsaFreeMemory(DomainInfo);
+
+    return dwResult;
 }
 
 
@@ -115,6 +245,10 @@ NetrWkstaUserEnum(
     unsigned long *TotalEntries,
     unsigned long *ResumeHandle)
 {
+    ERR("NetrWkstaUserEnum(%p %p 0x%lx %p %p)\n",
+        ServerName, UserInfo, PreferredMaximumLength, TotalEntries, ResumeHandle);
+
+
     UNIMPLEMENTED;
     return 0;
 }
@@ -247,13 +381,13 @@ NetrUseEnum(
 }
 
 
-/* Function 12 */
-void
+/* Function 12 - Not used on wire */
+unsigned long
 __stdcall
-Opnum12NotUsedOnWire(void)
+NetrMessageBufferSend(void)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrMessageBufferSend()\n");
+    return ERROR_NOT_SUPPORTED;
 }
 
 
@@ -292,63 +426,67 @@ NetrWorkstationStatisticsGet(
 }
 
 
-/* Function 14 */
-void
+/* Function 14 - Not used on wire */
+unsigned long
 __stdcall
-Opnum14NotUsedOnWire(void)
+NetrLogonDomainNameAdd(
+    WKSSVC_IDENTIFY_HANDLE DomainName)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrLogonDomainNameAdd(%s)\n",
+          debugstr_w(DomainName));
+    return ERROR_NOT_SUPPORTED;
 }
 
 
-/* Function 15 */
-void
+/* Function 15 - Not used on wire */
+unsigned long
 __stdcall
-Opnum15NotUsedOnWire(void)
+NetrLogonDomainNameDel(
+    WKSSVC_IDENTIFY_HANDLE DomainName)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrLogonDomainNameDel(%s)\n",
+          debugstr_w(DomainName));
+    return ERROR_NOT_SUPPORTED;
 }
 
 
-/* Function 16 */
-void
+/* Function 16 - Not used on wire */
+unsigned long
 __stdcall
-Opnum16NotUsedOnWire(void)
+NetrJoinDomain(void)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrJoinDomain()\n");
+    return ERROR_NOT_SUPPORTED;
 }
 
 
-/* Function 17 */
-void
+/* Function 17 - Not used on wire */
+unsigned long
 __stdcall
-Opnum17NotUsedOnWire(void)
+NetrUnjoinDomain(void)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrUnjoinDomain()\n");
+    return ERROR_NOT_SUPPORTED;
 }
 
 
-/* Function 18 */
-void
+/* Function 18 - Not used on wire */
+unsigned long
 __stdcall
-Opnum18NotUsedOnWire(void)
+NetrValidateName(void)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrValidateName()\n");
+    return ERROR_NOT_SUPPORTED;
 }
 
 
-/* Function 19 */
-void
+/* Function 19 - Not used on wire */
+unsigned long
 __stdcall
-Opnum19NotUsedOnWire(void)
+NetrRenameMachineInDomain(void)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrRenameMachineInDomain()\n");
+    return ERROR_NOT_SUPPORTED;
 }
 
 
@@ -360,22 +498,24 @@ NetrGetJoinInformation(
     wchar_t **NameBuffer,
     PNETSETUP_JOIN_STATUS BufferType)
 {
-    TRACE("NetrGetJoinInformation()\n");
+    TRACE("NetrGetJoinInformation(%p %p %p)\n",
+          ServerName, NameBuffer, BufferType);
 
-    *NameBuffer = NULL;
-    *BufferType = NetSetupUnjoined;
+    if (NameBuffer == NULL)
+        return ERROR_INVALID_PARAMETER;
 
-    return NERR_Success;
+    return NetpGetJoinInformation(NameBuffer,
+                                  BufferType);
 }
 
 
-/* Function 21 */
-void
+/* Function 21 - Not used on wire */
+unsigned long
 __stdcall
-Opnum21NotUsedOnWire(void)
+NetrGetJoinableOUs(void)
 {
-    UNIMPLEMENTED;
-//    return 0;
+    TRACE("NetrGetJoinableOUs()\n");
+    return ERROR_NOT_SUPPORTED;
 }
 
 
@@ -391,8 +531,26 @@ NetrJoinDomain2(
     PJOINPR_ENCRYPTED_USER_PASSWORD Password,
     unsigned long Options)
 {
-    UNIMPLEMENTED;
-    return 0;
+    NET_API_STATUS status;
+
+    FIXME("NetrJoinDomain2(%p %S %S %S %S %p 0x%lx)\n",
+          RpcBindingHandle, ServerName, DomainNameParam, MachineAccountOU,
+          AccountName, Password, Options);
+
+    if (DomainNameParam == NULL)
+        return ERROR_INVALID_PARAMETER;
+
+    if (Options & NETSETUP_JOIN_DOMAIN)
+    {
+        FIXME("NetrJoinDomain2: NETSETUP_JOIN_DOMAIN is not supported yet!\n");
+        status = ERROR_CALL_NOT_IMPLEMENTED;
+    }
+    else
+    {
+        status = NetpJoinWorkgroup(DomainNameParam);
+    }
+
+    return status;
 }
 
 

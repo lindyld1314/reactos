@@ -17,7 +17,6 @@
 
 /* GLOBALS ********************************************************************/
 
-BOOLEAN MmZeroingPageThreadActive;
 KEVENT MmZeroingPageEvent;
 
 /* PRIVATE FUNCTIONS **********************************************************/
@@ -47,7 +46,7 @@ MmZeroPageThread(VOID)
     /* Get the discardable sections to free them */
     MiFindInitializationCode(&StartAddress, &EndAddress);
     if (StartAddress) MiFreeInitializationCode(StartAddress, EndAddress);
-    DPRINT("Free non-cache pages: %lx\n", MmAvailablePages + MiMemoryConsumers[MC_CACHE].PagesUsed);
+    DPRINT("Free pages: %lx\n", MmAvailablePages);
 
     /* Set our priority to 0 */
     Thread->BasePriority = 0;
@@ -68,13 +67,12 @@ MmZeroPageThread(VOID)
                                  NULL,
                                  NULL);
         OldIrql = MiAcquirePfnLock();
-        MmZeroingPageThreadActive = TRUE;
 
         while (TRUE)
         {
             if (!MmFreePageListHead.Total)
             {
-                MmZeroingPageThreadActive = FALSE;
+                KeClearEvent(&MmZeroingPageEvent);
                 MiReleasePfnLock(OldIrql);
                 break;
             }

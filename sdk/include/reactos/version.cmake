@@ -1,15 +1,21 @@
-string(TIMESTAMP KERNEL_VERSION_BUILD %Y%m%d UTC)
+option(NO_REACTOS_BUILDNO "If true, disables the generation of buildno.h and version.h for each configure" OFF)
+
+if (NOT NO_REACTOS_BUILDNO)
+    string(TIMESTAMP KERNEL_VERSION_BUILD %Y%m%d UTC)
+else()
+    set(KERNEL_VERSION_BUILD "custom")
+endif()
 
 set(KERNEL_VERSION_MAJOR "0")
 set(KERNEL_VERSION_MINOR "4")
-set(KERNEL_VERSION_PATCH_LEVEL "9")
-set(COPYRIGHT_YEAR "2018")
+set(KERNEL_VERSION_PATCH_LEVEL "15")
+set(COPYRIGHT_YEAR "2021")
 
 # KERNEL_VERSION_BUILD_TYPE is "dev" for Git builds
 # or "RC1", "RC2", "" for releases.
 set(KERNEL_VERSION_BUILD_TYPE "dev")
 
-set(KERNEL_VERSION "${KERNEL_VERSION_MAJOR}.${KERNEL_VERSION_MINOR}.${KERNEL_VERSION_PATCH_LEVEL}")
+set(KERNEL_VERSION "${KERNEL_VERSION_MAJOR}.${KERNEL_VERSION_MINOR}.${KERNEL_VERSION_PATCH_LEVEL}-${WINARCH}")
 if(NOT KERNEL_VERSION_BUILD_TYPE STREQUAL "")
     set(KERNEL_VERSION "${KERNEL_VERSION}-${KERNEL_VERSION_BUILD_TYPE}")
 endif()
@@ -24,7 +30,7 @@ endif()
 set(COMMIT_HASH "unknown-hash")
 set(REVISION "unknown-revision")
 
-if(EXISTS "${REACTOS_SOURCE_DIR}/.git")
+if((EXISTS "${REACTOS_SOURCE_DIR}/.git") AND (NOT NO_REACTOS_BUILDNO))
     find_package(Git)
     if(GIT_FOUND)
         execute_process(
@@ -39,7 +45,7 @@ if(EXISTS "${REACTOS_SOURCE_DIR}/.git")
         endif()
 
         execute_process(
-            COMMAND "${GIT_EXECUTABLE}" describe --abbrev=7 --long
+            COMMAND "${GIT_EXECUTABLE}" describe --abbrev=7 --long --always
             WORKING_DIRECTORY ${REACTOS_SOURCE_DIR}
             OUTPUT_VARIABLE GIT_DESCRIBE_REVISION
             RESULT_VARIABLE GIT_CALL_RESULT
@@ -53,4 +59,3 @@ endif()
 
 configure_file(sdk/include/reactos/version.h.cmake ${REACTOS_BINARY_DIR}/sdk/include/reactos/version.h)
 configure_file(sdk/include/reactos/buildno.h.cmake ${REACTOS_BINARY_DIR}/sdk/include/reactos/buildno.h)
-configure_file(sdk/include/reactos/builddir.h.cmake ${REACTOS_BINARY_DIR}/sdk/include/reactos/builddir.h)

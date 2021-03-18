@@ -1,10 +1,34 @@
 /**
- * \file ssl_ticket.h
+ * \file ssl_internal.h
  *
  * \brief Internal functions shared by the SSL modules
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,12 +44,21 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
+ *  **********
+ *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef MBEDTLS_SSL_INTERNAL_H
 #define MBEDTLS_SSL_INTERNAL_H
 
+#if !defined(MBEDTLS_CONFIG_FILE)
+#include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
+
 #include "ssl.h"
+#include "cipher.h"
 
 #if defined(MBEDTLS_MD5_C)
 #include "md5.h"
@@ -70,6 +103,9 @@
 #endif /* MBEDTLS_SSL_PROTO_TLS1_1 */
 #endif /* MBEDTLS_SSL_PROTO_TLS1   */
 #endif /* MBEDTLS_SSL_PROTO_SSL3   */
+
+#define MBEDTLS_SSL_MIN_VALID_MINOR_VERSION MBEDTLS_SSL_MINOR_VERSION_1
+#define MBEDTLS_SSL_MIN_VALID_MAJOR_VERSION MBEDTLS_SSL_MAJOR_VERSION_3
 
 /* Determine maximum supported version */
 #define MBEDTLS_SSL_MAX_MAJOR_VERSION           MBEDTLS_SSL_MAJOR_VERSION_3
@@ -140,12 +176,38 @@
 #define MBEDTLS_SSL_PADDING_ADD              0
 #endif
 
-#define MBEDTLS_SSL_BUFFER_LEN  ( MBEDTLS_SSL_MAX_CONTENT_LEN               \
-                        + MBEDTLS_SSL_COMPRESSION_ADD               \
-                        + 29 /* counter + header + IV */    \
-                        + MBEDTLS_SSL_MAC_ADD                       \
-                        + MBEDTLS_SSL_PADDING_ADD                   \
+#define MBEDTLS_SSL_PAYLOAD_LEN ( MBEDTLS_SSL_MAX_CONTENT_LEN    \
+                        + MBEDTLS_SSL_COMPRESSION_ADD            \
+                        + MBEDTLS_MAX_IV_LENGTH                  \
+                        + MBEDTLS_SSL_MAC_ADD                    \
+                        + MBEDTLS_SSL_PADDING_ADD                \
                         )
+
+/* Maximum size in bytes of list in sig-hash algorithm ext., RFC 5246 */
+#define MBEDTLS_SSL_MAX_SIG_HASH_ALG_LIST_LEN  65534
+
+/* Maximum size in bytes of list in supported elliptic curve ext., RFC 4492 */
+#define MBEDTLS_SSL_MAX_CURVE_LIST_LEN         65535
+
+/*
+ * Check that we obey the standard's message size bounds
+ */
+
+#if MBEDTLS_SSL_MAX_CONTENT_LEN > 16384
+#error Bad configuration - record content too large.
+#endif
+
+#if MBEDTLS_SSL_PAYLOAD_LEN > 16384 + 2048
+#error Bad configuration - protected record payload too large.
+#endif
+
+/* Note: Even though the TLS record header is only 5 bytes
+   long, we're internally using 8 bytes to store the
+   implicit sequence number. */
+#define MBEDTLS_SSL_HEADER_LEN 13
+
+#define MBEDTLS_SSL_BUFFER_LEN  \
+    ( ( MBEDTLS_SSL_HEADER_LEN ) + ( MBEDTLS_SSL_PAYLOAD_LEN ) )
 
 /*
  * TLS extension flags (for extensions with outgoing ServerHello content
@@ -154,6 +216,41 @@
  */
 #define MBEDTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT (1 << 0)
 #define MBEDTLS_TLS_EXT_ECJPAKE_KKPP_OK                 (1 << 1)
+
+/**
+ * \brief        This function checks if the remaining size in a buffer is
+ *               greater or equal than a needed space.
+ *
+ * \param cur    Pointer to the current position in the buffer.
+ * \param end    Pointer to one past the end of the buffer.
+ * \param need   Needed space in bytes.
+ *
+ * \return       Zero if the needed space is available in the buffer, non-zero
+ *               otherwise.
+ */
+static inline int mbedtls_ssl_chk_buf_ptr( const uint8_t *cur,
+                                           const uint8_t *end, size_t need )
+{
+    return( ( cur > end ) || ( need > (size_t)( end - cur ) ) );
+}
+
+/**
+ * \brief        This macro checks if the remaining size in a buffer is
+ *               greater or equal than a needed space. If it is not the case,
+ *               it returns an SSL_BUFFER_TOO_SMALL error.
+ *
+ * \param cur    Pointer to the current position in the buffer.
+ * \param end    Pointer to one past the end of the buffer.
+ * \param need   Needed space in bytes.
+ *
+ */
+#define MBEDTLS_SSL_CHK_BUF_PTR( cur, end, need )                        \
+    do {                                                                 \
+        if( mbedtls_ssl_chk_buf_ptr( ( cur ), ( end ), ( need ) ) != 0 ) \
+        {                                                                \
+            return( MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL );                  \
+        }                                                                \
+    } while( 0 )
 
 #ifdef __cplusplus
 extern "C" {
@@ -602,15 +699,38 @@ void mbedtls_ssl_dtls_replay_update( mbedtls_ssl_context *ssl );
 static inline int mbedtls_ssl_safer_memcmp( const void *a, const void *b, size_t n )
 {
     size_t i;
-    const unsigned char *A = (const unsigned char *) a;
-    const unsigned char *B = (const unsigned char *) b;
-    unsigned char diff = 0;
+    volatile const unsigned char *A = (volatile const unsigned char *) a;
+    volatile const unsigned char *B = (volatile const unsigned char *) b;
+    volatile unsigned char diff = 0;
 
     for( i = 0; i < n; i++ )
-        diff |= A[i] ^ B[i];
+    {
+        /* Read volatile data in order before computing diff.
+         * This avoids IAR compiler warning:
+         * 'the order of volatile accesses is undefined ..' */
+        unsigned char x = A[i], y = B[i];
+        diff |= x ^ y;
+    }
 
     return( diff );
 }
+
+#if defined(MBEDTLS_SSL_PROTO_SSL3) || defined(MBEDTLS_SSL_PROTO_TLS1) || \
+    defined(MBEDTLS_SSL_PROTO_TLS1_1)
+int mbedtls_ssl_get_key_exchange_md_ssl_tls( mbedtls_ssl_context *ssl,
+                                        unsigned char *output,
+                                        unsigned char *data, size_t data_len );
+#endif /* MBEDTLS_SSL_PROTO_SSL3 || MBEDTLS_SSL_PROTO_TLS1 || \
+          MBEDTLS_SSL_PROTO_TLS1_1 */
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1) || defined(MBEDTLS_SSL_PROTO_TLS1_1) || \
+    defined(MBEDTLS_SSL_PROTO_TLS1_2)
+int mbedtls_ssl_get_key_exchange_md_tls1_2( mbedtls_ssl_context *ssl,
+                                        unsigned char *output,
+                                        unsigned char *data, size_t data_len,
+                                        mbedtls_md_type_t md_alg );
+#endif /* MBEDTLS_SSL_PROTO_TLS1 || MBEDTLS_SSL_PROTO_TLS1_1 || \
+          MBEDTLS_SSL_PROTO_TLS1_2 */
 
 #ifdef __cplusplus
 }

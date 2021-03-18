@@ -15,11 +15,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, IoInitFileSystemImplementation)
-#pragma alloc_text(INIT, IoInitVpbImplementation)
-#endif
-
 /* GLOBALS ******************************************************************/
 
 ERESOURCE IopDatabaseResource;
@@ -122,6 +117,14 @@ IopCheckVpbMounted(IN POPEN_PACKET OpenPacket,
             /* Otherwise we were alerted */
             *Status = STATUS_WRONG_VOLUME;
             return NULL;
+        }
+        /*
+         * In case IopMountVolume returns a valid VPB
+         * Then, the volume is mounted, return it
+         */
+        else if (Vpb != NULL)
+        {
+            return Vpb;
         }
 
         /* Re-acquire the lock */
@@ -363,6 +366,9 @@ IopShutdownBaseFileSystems(IN PLIST_ENTRY ListHead)
                                          DEVICE_OBJECT,
                                          Queue.ListEntry);
 
+        /* Go to the next entry */
+        ListEntry = ListEntry->Flink;
+
         /* Get the attached device */
         DeviceObject = IoGetAttachedDevice(DeviceObject);
 
@@ -392,9 +398,6 @@ IopShutdownBaseFileSystems(IN PLIST_ENTRY ListHead)
 
         IopDecrementDeviceObjectRef(DeviceObject, FALSE);
         ObDereferenceObject(DeviceObject);
-
-        /* Go to the next entry */
-        ListEntry = ListEntry->Flink;
     }
 }
 
@@ -1346,7 +1349,7 @@ IoVolumeDeviceToDosName(IN PVOID VolumeDeviceObject,
         goto DereferenceFO;
     }
 
-    Status = IoCallDriver(VolumeDeviceObject, Irp);
+    Status = IoCallDriver(DeviceObject, Irp);
     if (Status == STATUS_PENDING)
     {
         KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);
@@ -1396,7 +1399,7 @@ IoVolumeDeviceToDosName(IN PVOID VolumeDeviceObject,
         goto ReleaseMemory;
     }
 
-    Status = IoCallDriver(VolumeDeviceObject, Irp);
+    Status = IoCallDriver(DeviceObject, Irp);
     if (Status == STATUS_PENDING)
     {
         KeWaitForSingleObject(&Event, Executive, KernelMode, FALSE, NULL);

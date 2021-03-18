@@ -24,7 +24,7 @@ FASTCALL
 ObReferenceObjectSafe(IN PVOID Object)
 {
     POBJECT_HEADER ObjectHeader;
-    LONG OldValue, NewValue;
+    LONG_PTR OldValue, NewValue;
 
     /* Get the object header */
     ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object);
@@ -37,9 +37,9 @@ ObReferenceObjectSafe(IN PVOID Object)
     do
     {
         /* Increase the reference count */
-        NewValue = InterlockedCompareExchange(&ObjectHeader->PointerCount,
-                                              OldValue + 1,
-                                              OldValue);
+        NewValue = InterlockedCompareExchangeSizeT(&ObjectHeader->PointerCount,
+                                                   OldValue + 1,
+                                                   OldValue);
         if (OldValue == NewValue) return TRUE;
 
         /* Keep looping */
@@ -80,9 +80,9 @@ ObReferenceObjectEx(IN PVOID Object,
                     IN LONG Count)
 {
     /* Increment the reference count and return the count now */
-    return InterlockedExchangeAdd(&OBJECT_TO_OBJECT_HEADER(Object)->
-                                  PointerCount,
-                                  Count) + Count;
+    return InterlockedExchangeAddSizeT(&OBJECT_TO_OBJECT_HEADER(Object)->
+                                       PointerCount,
+                                       Count) + Count;
 }
 
 LONG
@@ -91,13 +91,13 @@ ObDereferenceObjectEx(IN PVOID Object,
                       IN LONG Count)
 {
     POBJECT_HEADER Header;
-    LONG NewCount;
+    LONG_PTR NewCount;
 
     /* Extract the object header */
     Header = OBJECT_TO_OBJECT_HEADER(Object);
 
     /* Check whether the object can now be deleted. */
-    NewCount = InterlockedExchangeAdd(&Header->PointerCount, -Count) - Count;
+    NewCount = InterlockedExchangeAddSizeT(&Header->PointerCount, -Count) - Count;
     if (!NewCount) ObpDeferObjectDeletion(Header);
 
     /* Return the current count */
@@ -111,7 +111,7 @@ ObInitializeFastReference(IN PEX_FAST_REF FastRef,
 {
     /* Check if we were given an object and reference it 7 times */
     if (Object) ObReferenceObjectEx(Object, MAX_FAST_REFS);
-    
+
     /* Setup the fast reference */
     ExInitializeFastReference(FastRef, Object);
 }
@@ -152,7 +152,7 @@ ObFastReferenceObject(IN PEX_FAST_REF FastRef)
 
     /* Otherwise, reference the object 7 times */
     ObReferenceObjectEx(Object, MAX_FAST_REFS);
-    
+
     /* Now update the reference count */
     if (!ExInsertFastReference(FastRef, Object))
     {
@@ -184,11 +184,11 @@ ObFastReplaceObject(IN PEX_FAST_REF FastRef,
 
     /* Check if we were given an object and reference it 7 times */
     if (Object) ObReferenceObjectEx(Object, MAX_FAST_REFS);
-    
+
     /* Do the swap */
     OldValue = ExSwapFastReference(FastRef, Object);
     OldObject = ExGetObjectFastReference(OldValue);
-    
+
     /* Check if we had an active object and dereference it */
     Count = ExGetCountFastReference(OldValue);
     if ((OldObject) && (Count)) ObDereferenceObjectEx(OldObject, Count);
@@ -274,7 +274,7 @@ ObReferenceFileObjectForWrite(IN HANDLE Handle,
                 /* FIXME: Audit access if required */
 
                 /* Reference the object directly since we have its header */
-                InterlockedIncrement(&ObjectHeader->PointerCount);
+                InterlockedIncrementSizeT(&ObjectHeader->PointerCount);
 
                 /* Unlock the handle */
                 ExUnlockHandleTableEntry(HandleTable, HandleEntry);
@@ -312,7 +312,7 @@ ObfReferenceObject(IN PVOID Object)
     ASSERT(Object);
 
     /* Get the header and increment the reference count */
-    return InterlockedIncrement(&OBJECT_TO_OBJECT_HEADER(Object)->PointerCount);
+    return InterlockedIncrementSizeT(&OBJECT_TO_OBJECT_HEADER(Object)->PointerCount);
 }
 
 LONG_PTR
@@ -320,7 +320,7 @@ FASTCALL
 ObfDereferenceObject(IN PVOID Object)
 {
     POBJECT_HEADER Header;
-    LONG_PTR OldCount;
+    LONG_PTR NewCount;
 
     /* Extract the object header */
     Header = OBJECT_TO_OBJECT_HEADER(Object);
@@ -332,8 +332,8 @@ ObfDereferenceObject(IN PVOID Object)
     }
 
     /* Check whether the object can now be deleted. */
-    OldCount = InterlockedDecrement(&Header->PointerCount);
-    if (!OldCount)
+    NewCount = InterlockedDecrementSizeT(&Header->PointerCount);
+    if (!NewCount)
     {
         /* Sanity check */
         ASSERT(Header->HandleCount == 0);
@@ -351,8 +351,8 @@ ObfDereferenceObject(IN PVOID Object)
         }
     }
 
-    /* Return the old count */
-    return OldCount;
+    /* Return the new count */
+    return NewCount;
 }
 
 VOID
@@ -362,7 +362,7 @@ ObDereferenceObjectDeferDelete(IN PVOID Object)
     POBJECT_HEADER Header = OBJECT_TO_OBJECT_HEADER(Object);
 
     /* Check whether the object can now be deleted. */
-    if (!InterlockedDecrement(&Header->PointerCount))
+    if (!InterlockedDecrementSizeT(&Header->PointerCount))
     {
         /* Add us to the deferred deletion list */
         ObpDeferObjectDeletion(Header);
@@ -395,14 +395,14 @@ ObReferenceObjectByPointer(IN PVOID Object,
      * NOTE: Unless it's a symbolic link (Caz Yokoyama [MSFT])
      */
     if ((Header->Type != ObjectType) && ((AccessMode != KernelMode) ||
-        (ObjectType == ObSymbolicLinkType)))
+        (ObjectType == ObpSymbolicLinkObjectType)))
     {
         /* Invalid type */
         return STATUS_OBJECT_TYPE_MISMATCH;
     }
 
     /* Increment the reference count and return success */
-    InterlockedIncrement(&Header->PointerCount);
+    InterlockedIncrementSizeT(&Header->PointerCount);
     return STATUS_SUCCESS;
 }
 
@@ -543,7 +543,7 @@ ObReferenceObjectByHandle(IN HANDLE Handle,
 
                     /* Reference ourselves */
                     ObjectHeader = OBJECT_TO_OBJECT_HEADER(CurrentProcess);
-                    InterlockedExchangeAdd(&ObjectHeader->PointerCount, 1);
+                    InterlockedExchangeAddSizeT(&ObjectHeader->PointerCount, 1);
 
                     /* Return the pointer */
                     *Object = CurrentProcess;
@@ -591,7 +591,7 @@ ObReferenceObjectByHandle(IN HANDLE Handle,
 
                     /* Reference ourselves */
                     ObjectHeader = OBJECT_TO_OBJECT_HEADER(CurrentThread);
-                    InterlockedExchangeAdd(&ObjectHeader->PointerCount, 1);
+                    InterlockedExchangeAddSizeT(&ObjectHeader->PointerCount, 1);
 
                     /* Return the pointer */
                     *Object = CurrentThread;
@@ -654,7 +654,7 @@ ObReferenceObjectByHandle(IN HANDLE Handle,
                 !(~GrantedAccess & DesiredAccess))
             {
                 /* Reference the object directly since we have its header */
-                InterlockedIncrement(&ObjectHeader->PointerCount);
+                InterlockedIncrementSizeT(&ObjectHeader->PointerCount);
 
                 /* Mask out the internal attributes */
                 Attributes = HandleEntry->ObAttributes & OBJ_HANDLE_ATTRIBUTES;

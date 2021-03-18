@@ -7,7 +7,7 @@ include_directories(
     ${REACTOS_SOURCE_DIR}/drivers/filesystems/nfs
     ${REACTOS_SOURCE_DIR}/dll/np/nfs)
 
-list(APPEND SOURCE 
+list(APPEND SOURCE
     acl.c
     callback_server.c
     callback_xdr.c
@@ -49,9 +49,11 @@ list(APPEND SOURCE
 add_executable(nfsd ${SOURCE} nfsd.rc)
 
 if(MSVC AND (NOT USE_CLANG_CL))
+    # Disable warning C4477 (printf format warnings)
+    remove_target_compile_option(nfsd "/we4477")
 else()
     # FIXME: Tons of warnings.
-    add_target_compile_flags(nfsd "-w")
+    target_compile_options(nfsd PRIVATE "-w")
 endif()
 
 set_module_type(nfsd win32cui)

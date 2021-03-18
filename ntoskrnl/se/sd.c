@@ -13,10 +13,6 @@
 #define NDEBUG
 #include <debug.h>
 
-#if defined (ALLOC_PRAGMA)
-#pragma alloc_text(INIT, SepInitSDs)
-#endif
-
 /* GLOBALS ********************************************************************/
 
 PSECURITY_DESCRIPTOR SePublicDefaultSd = NULL;
@@ -28,8 +24,8 @@ PSECURITY_DESCRIPTOR SeUnrestrictedSd = NULL;
 
 /* PRIVATE FUNCTIONS **********************************************************/
 
+CODE_SEG("INIT")
 BOOLEAN
-INIT_FUNCTION
 NTAPI
 SepInitSDs(VOID)
 {
@@ -662,28 +658,32 @@ SeQuerySecurityDescriptorInfo(
 
     /* Calculate the required security descriptor length */
     Control = SE_SELF_RELATIVE;
-    if ((*SecurityInformation & OWNER_SECURITY_INFORMATION) &&
-        (ObjectSd->Owner != NULL))
+    if (*SecurityInformation & OWNER_SECURITY_INFORMATION)
     {
-        Owner = (PSID)((ULONG_PTR)ObjectSd->Owner + (ULONG_PTR)ObjectSd);
-        OwnerLength = ROUND_UP(RtlLengthSid(Owner), 4);
-        Control |= (ObjectSd->Control & SE_OWNER_DEFAULTED);
+        Owner = SepGetOwnerFromDescriptor(ObjectSd);
+        if (Owner != NULL)
+        {
+            OwnerLength = ROUND_UP(RtlLengthSid(Owner), 4);
+            Control |= (ObjectSd->Control & SE_OWNER_DEFAULTED);
+        }
     }
 
-    if ((*SecurityInformation & GROUP_SECURITY_INFORMATION) &&
-        (ObjectSd->Group != NULL))
+    if (*SecurityInformation & GROUP_SECURITY_INFORMATION)
     {
-        Group = (PSID)((ULONG_PTR)ObjectSd->Group + (ULONG_PTR)ObjectSd);
-        GroupLength = ROUND_UP(RtlLengthSid(Group), 4);
-        Control |= (ObjectSd->Control & SE_GROUP_DEFAULTED);
+        Group = SepGetGroupFromDescriptor(ObjectSd);
+        if (Group != NULL)
+        {
+            GroupLength = ROUND_UP(RtlLengthSid(Group), 4);
+            Control |= (ObjectSd->Control & SE_GROUP_DEFAULTED);
+        }
     }
 
     if ((*SecurityInformation & DACL_SECURITY_INFORMATION) &&
         (ObjectSd->Control & SE_DACL_PRESENT))
     {
-        if (ObjectSd->Dacl != NULL)
+        Dacl = SepGetDaclFromDescriptor(ObjectSd);
+        if (Dacl != NULL)
         {
-            Dacl = (PACL)((ULONG_PTR)ObjectSd->Dacl + (ULONG_PTR)ObjectSd);
             DaclLength = ROUND_UP((ULONG)Dacl->AclSize, 4);
         }
 
@@ -693,9 +693,9 @@ SeQuerySecurityDescriptorInfo(
     if ((*SecurityInformation & SACL_SECURITY_INFORMATION) &&
         (ObjectSd->Control & SE_SACL_PRESENT))
     {
-        if (ObjectSd->Sacl != NULL)
+        Sacl = SepGetSaclFromDescriptor(ObjectSd);
+        if (Sacl != NULL)
         {
-            Sacl = (PACL)((ULONG_PTR)ObjectSd->Sacl + (ULONG_PTR)ObjectSd);
             SaclLength = ROUND_UP(Sacl->AclSize, 4);
         }
 
@@ -916,13 +916,9 @@ SeSetSecurityDescriptorInfoEx(
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    RtlCreateSecurityDescriptor(NewSd,
-                                SECURITY_DESCRIPTOR_REVISION1);
+    RtlCreateSecurityDescriptorRelative(NewSd, SECURITY_DESCRIPTOR_REVISION1);
 
-    /* We always build a self-relative descriptor */
-    NewSd->Control = Control | SE_SELF_RELATIVE;
-
-    Current = sizeof(SECURITY_DESCRIPTOR);
+    Current = sizeof(SECURITY_DESCRIPTOR_RELATIVE);
 
     if (OwnerLength != 0)
     {
@@ -1431,6 +1427,48 @@ SeAssignSecurity(
                               SubjectContext,
                               GenericMapping,
                               PoolType);
+}
+
+/*
+ * @implemented
+ */
+_IRQL_requires_max_(PASSIVE_LEVEL)
+NTSTATUS
+NTAPI
+SeComputeQuotaInformationSize(
+    _In_ PSECURITY_DESCRIPTOR SecurityDescriptor,
+    _Out_ PULONG QuotaInfoSize)
+{
+    PSID Group;
+    PACL Dacl;
+
+    PAGED_CODE();
+
+    *QuotaInfoSize = 0;
+
+    /* Validate security descriptor revision */
+    if (((PISECURITY_DESCRIPTOR)SecurityDescriptor)->Revision != SECURITY_DESCRIPTOR_REVISION1)
+    {
+        return STATUS_UNKNOWN_REVISION;
+    }
+
+    /* Get group and DACL, if any */
+    Group = SepGetGroupFromDescriptor(SecurityDescriptor);
+    Dacl = SepGetDaclFromDescriptor(SecurityDescriptor);
+
+    /* Return SID length if any */
+    if (Group != NULL)
+    {
+        *QuotaInfoSize = ALIGN_UP_BY(RtlLengthSid(Group), sizeof(ULONG));
+    }
+
+    /* Return DACL if any */
+    if (Dacl != NULL)
+    {
+        *QuotaInfoSize += ALIGN_UP_BY(Dacl->AclSize, sizeof(ULONG));
+    }
+
+    return STATUS_SUCCESS;
 }
 
 /* EOF */

@@ -2,7 +2,7 @@
 
 /* GLOBAL VARIABLES *********************************************************/
 
-extern TIME_ZONE_INFORMATION ExpTimeZoneInfo;
+extern RTL_TIME_ZONE_INFORMATION ExpTimeZoneInfo;
 extern LARGE_INTEGER ExpTimeZoneBias;
 extern ULONG ExpTimeZoneId;
 extern ULONG ExpTickCountMultiplier;
@@ -47,7 +47,6 @@ extern UNICODE_STRING CmVersionString;
 extern UNICODE_STRING CmCSDVersionString;
 extern CHAR NtBuildLab[];
 
-// #ifdef _WINKD_
 /*
  * WinDBG Debugger Worker State Machine data (see dbgctrl.c)
  */
@@ -65,7 +64,6 @@ extern PEPROCESS ExpDebuggerProcessKill;
 extern ULONG_PTR ExpDebuggerPageIn;
 
 VOID NTAPI ExpDebuggerWorker(IN PVOID Context);
-// #endif /* _WINKD_ */
 
 #ifdef _WIN64
 #define HANDLE_LOW_BITS (PAGE_SHIFT - 4)
@@ -167,6 +165,24 @@ ExGetPoolTagInfo(
     IN OUT PULONG ReturnLength OPTIONAL
 );
 
+typedef struct _UUID_CACHED_VALUES_STRUCT
+{
+    ULONGLONG Time;
+    LONG AllocatedCount;
+    union
+    {
+        struct
+        {
+            UCHAR ClockSeqHiAndReserved;
+            UCHAR ClockSeqLow;
+            UCHAR NodeId[6 /*SEED_BUFFER_SIZE*/];
+        };
+        UCHAR GuidInit[8]; /* Match GUID.Data4 */
+    };
+} UUID_CACHED_VALUES_STRUCT, *PUUID_CACHED_VALUES_STRUCT;
+
+C_ASSERT(RTL_FIELD_SIZE(UUID_CACHED_VALUES_STRUCT, GuidInit) == RTL_FIELD_SIZE(UUID, Data4));
+
 /* INITIALIZATION FUNCTIONS *************************************************/
 
 BOOLEAN
@@ -220,9 +236,13 @@ BOOLEAN
 NTAPI
 ExpInitializeCallbacks(VOID);
 
-VOID
+BOOLEAN
 NTAPI
-ExpInitUuids(VOID);
+ExpUuidInitialization(VOID);
+
+BOOLEAN
+NTAPI
+ExLuidInitialization(VOID);
 
 VOID
 NTAPI
@@ -741,6 +761,16 @@ ExCompareSwapFastReference(IN PEX_FAST_REF FastRef,
 }
 
 /* RUNDOWN *******************************************************************/
+
+FORCEINLINE
+PEX_RUNDOWN_REF
+ExGetRunRefForGivenProcessor(IN PEX_RUNDOWN_REF_CACHE_AWARE RunRefCacheAware,
+                             IN ULONG ProcNumber)
+{
+    return (PEX_RUNDOWN_REF)((ULONG_PTR)RunRefCacheAware->RunRefs +
+                             RunRefCacheAware->RunRefSize *
+                             (ProcNumber % RunRefCacheAware->Number));
+}
 
 /*++
  * @name ExfAcquireRundownProtection
@@ -1417,7 +1447,7 @@ ExTryToAcquireResourceExclusiveLite(
 
 NTSTATUS
 ExpSetTimeZoneInformation(
-    IN PTIME_ZONE_INFORMATION TimeZoneInformation
+    IN PRTL_TIME_ZONE_INFORMATION TimeZoneInformation
 );
 
 BOOLEAN
@@ -1477,6 +1507,9 @@ XIPInit(
 
 #define InterlockedCompareExchangeUL(Destination, Exchange, Comperand) \
    (ULONG)InterlockedCompareExchange((PLONG)(Destination), (LONG)(Exchange), (LONG)(Comperand))
+
+#define InterlockedCompareExchangeSizeT(Destination, Exchange, Comperand) \
+   (SIZE_T)InterlockedCompareExchangePointer((PVOID*)(Destination), (PVOID)(SIZE_T)(Exchange), (PVOID)(SIZE_T)(Comperand))
 
 #define ExfInterlockedCompareExchange64UL(Destination, Exchange, Comperand) \
    (ULONGLONG)ExfInterlockedCompareExchange64((PLONGLONG)(Destination), (PLONGLONG)(Exchange), (PLONGLONG)(Comperand))

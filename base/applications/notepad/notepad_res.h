@@ -30,16 +30,16 @@
 #define DIALOG_GOTO      0x207
 #define ID_LINENUMBER    0x208
 #define IDI_NPICON       0x209
-#define IDD_ABOUTBOX     0x20A
-#define IDC_LICENSE      0x20B
+#define IDC_LICENSE      0x20A
 
 /* Commands */
 #define CMD_NEW        0x100
-#define CMD_OPEN       0x101
-#define CMD_SAVE       0x102
-#define CMD_SAVE_AS    0x103
-#define CMD_PRINT      0x104
-#define CMD_PAGE_SETUP 0x105
+#define CMD_NEW_WINDOW 0x101
+#define CMD_OPEN       0x102
+#define CMD_SAVE       0x103
+#define CMD_SAVE_AS    0x104
+#define CMD_PRINT      0x105
+#define CMD_PAGE_SETUP 0x106
 #define CMD_EXIT       0x108
 
 #define CMD_UNDO       0x110
@@ -62,8 +62,7 @@
 #define CMD_STATUSBAR_WND_ID 0x151
 
 #define CMD_HELP_CONTENTS 0x130
-#define CMD_ABOUT         0x135
-#define CMD_HELP_ABOUT_NOTEPAD    0x137
+#define CMD_HELP_ABOUT_NOTEPAD    0x135
 
 /* Strings */
 #define STRING_PAGESETUP_HEADERVALUE 0x160
@@ -98,8 +97,9 @@
 #define STRING_LF   0x183
 #define STRING_CR   0x184
 
-#define STRING_LICENSE     0x185
 #define STRING_LINE_COLUMN 0x186
 #define STRING_PRINTERROR  0x187
 
 #define STRING_TEXT_DOCUMENT  0x200
+
+#define STRING_NOTEPAD_AUTHORS 0x300

@@ -231,7 +231,7 @@ UDFCommonCreate(
     PtrUDFFCB                   PtrRelatedFCB = NULL, PtrNewFcb = NULL;
     PtrUDFNTRequiredFCB         NtReqFcb;
 
-    ULONG                       ReturnedInformation;
+    ULONG                       ReturnedInformation = 0;
 
     UNICODE_STRING              TargetObjectName;
     UNICODE_STRING              RelatedObjectName;
@@ -487,6 +487,7 @@ UDFCommonCreate(
 
         if (Vcb->SoftEjectReq) { 
             AdPrint(("    Eject requested\n"));
+            ReturnedInformation = FILE_DOES_NOT_EXIST;
             try_return(RC = STATUS_FILE_INVALID);
         }
 
@@ -580,6 +581,7 @@ UDFCommonCreate(
 
             if ((RequestedDisposition != FILE_OPEN) && (RequestedDisposition != FILE_OPEN_IF)) {
                 // cannot create a new volume, I'm afraid ...
+                ReturnedInformation = FILE_DOES_NOT_EXIST;
                 try_return(RC = STATUS_ACCESS_DENIED);
             }
 #endif //UDF_READ_ONLY_BUILD
@@ -742,9 +744,9 @@ op_vol_accs_dnd:
 
         // we should check appropriate privilege if OpenForBackup requested
         if(OpenForBackup) {
-            RC = SeSinglePrivilegeCheck(SeExports->SeBackupPrivilege, UserMode);
-            if(!NT_SUCCESS(RC))
-                try_return(RC);
+            if (!SeSinglePrivilegeCheck(SeExports->SeBackupPrivilege, UserMode)) {
+                try_return(RC = STATUS_PRIVILEGE_NOT_HELD);
+            }
         }
 
         // The FSD might wish to implement the open-by-id option. The "id"
@@ -1026,6 +1028,7 @@ op_vol_accs_dnd:
         if(Vcb->VCBFlags & UDF_VCB_FLAGS_RAW_DISK) {
             ReturnedInformation = 0;
             AdPrint(("    Can't open File on blank volume ;)\n"));
+            ReturnedInformation = FILE_DOES_NOT_EXIST;
             try_return(RC = STATUS_OBJECT_NAME_NOT_FOUND);
         }
 
@@ -1042,6 +1045,7 @@ op_vol_accs_dnd:
             try_return(RC = STATUS_OBJECT_NAME_INVALID);
         }
         if(StreamOpen && !UDFStreamsSupported(Vcb)) {
+            ReturnedInformation = FILE_DOES_NOT_EXIST;
             try_return(RC = STATUS_OBJECT_NAME_INVALID);
         }
 
@@ -1116,7 +1120,7 @@ op_vol_accs_dnd:
             // get next path part...
             TmpBuffer = TailName.Buffer;
             TailName.Buffer = UDFDissectName(TailName.Buffer,&(CurName.Length) );
-            TailName.Length -= (USHORT)((ULONG)(TailName.Buffer) - (ULONG)TmpBuffer);
+            TailName.Length -= (USHORT)((ULONG_PTR)(TailName.Buffer) - (ULONG_PTR)TmpBuffer);
             CurName.Buffer = TailName.Buffer - CurName.Length;
             CurName.Length *= sizeof(WCHAR);
             CurName.MaximumLength = CurName.Length + sizeof(WCHAR);
@@ -1143,6 +1147,7 @@ op_vol_accs_dnd:
                     // Only say ..CK OFF !!!!
                     if(RC == STATUS_OBJECT_NAME_NOT_FOUND)
                         RC = STATUS_OBJECT_PATH_NOT_FOUND;
+                    ReturnedInformation = FILE_DOES_NOT_EXIST;
                     try_return(RC);
                 }
 
@@ -1449,6 +1454,7 @@ Skip_open_attempt:
             } else {
                 AdPrint(("  Open Target: unexpected error\n"));
                 NewFileInfo = NULL;
+                ReturnedInformation = FILE_DOES_NOT_EXIST;
                 try_return(RC = STATUS_OBJECT_NAME_INVALID);
             }
 
@@ -1499,6 +1505,7 @@ Skip_open_attempt:
             if ((RequestedDisposition != FILE_CREATE) && (RequestedDisposition != FILE_OPEN_IF) &&
                  (RequestedDisposition != FILE_OVERWRITE_IF) && (RequestedDisposition != FILE_SUPERSEDE)) {
                 AdPrint(("    File doesn't exist (2)\n"));
+                ReturnedInformation = FILE_DOES_NOT_EXIST;
                 try_return(RC);
             }
             // Check Volume ReadOnly attr
@@ -2312,7 +2319,10 @@ UDFFirstOpenFile(
             ((LocalPath->Buffer[LocalPath->Length/sizeof(WCHAR)-1] != L':') /*&&
              (LocalPath->Buffer[LocalPath->Length/sizeof(WCHAR)-1] != L'\\')*/) )) {
         RC = MyAppendUnicodeToString(&(NewFCBName->ObjectName), L"\\");
-        if(!NT_SUCCESS(RC)) return STATUS_INSUFFICIENT_RESOURCES;
+        if(!NT_SUCCESS(RC)) {
+            UDFReleaseObjectName(NewFCBName);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
     }
 
     // Make link between Fcb and FileInfo
@@ -2321,9 +2331,11 @@ UDFFirstOpenFile(
     (*PtrNewFcb)->ParentFcb = RelatedFileInfo->Fcb;
 
     if(!((*PtrNewFcb)->NTRequiredFCB = NewFileInfo->Dloc->CommonFcb)) {
-        if(!((*PtrNewFcb)->NTRequiredFCB =
-                    (PtrUDFNTRequiredFCB)MyAllocatePool__(NonPagedPool, UDFQuadAlign(sizeof(UDFNTRequiredFCB))) ) )
+        (*PtrNewFcb)->NTRequiredFCB = (PtrUDFNTRequiredFCB)MyAllocatePool__(NonPagedPool, UDFQuadAlign(sizeof(UDFNTRequiredFCB)));
+        if(!((*PtrNewFcb)->NTRequiredFCB)) {
+            UDFReleaseObjectName(NewFCBName);
             return STATUS_INSUFFICIENT_RESOURCES;
+        }
 
         UDFPrint(("UDFAllocateNtReqFCB: %x\n", (*PtrNewFcb)->NTRequiredFCB));
         RtlZeroMemory((*PtrNewFcb)->NTRequiredFCB, UDFQuadAlign(sizeof(UDFNTRequiredFCB)));
@@ -2333,6 +2345,7 @@ UDFFirstOpenFile(
         if(!(NewFileInfo->Dloc->CommonFcb->NtReqFCBFlags & UDF_NTREQ_FCB_VALID)) {
             (*PtrNewFcb)->NTRequiredFCB = NULL;
             BrutePoint();
+            UDFReleaseObjectName(NewFCBName);
             return STATUS_ACCESS_DENIED;
         }
     }

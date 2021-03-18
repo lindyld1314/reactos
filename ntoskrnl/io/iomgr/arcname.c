@@ -18,26 +18,25 @@
 
 UNICODE_STRING IoArcHalDeviceName, IoArcBootDeviceName;
 PCHAR IoLoaderArcBootDeviceName;
-extern BOOLEAN IoRemoteBootClient;
 
 /* FUNCTIONS *****************************************************************/
 
+CODE_SEG("INIT")
 NTSTATUS
-INIT_FUNCTION
 NTAPI
 IopCreateArcNamesCd(IN PLOADER_PARAMETER_BLOCK LoaderBlock
 );
 
+CODE_SEG("INIT")
 NTSTATUS
-INIT_FUNCTION
 NTAPI
 IopCreateArcNamesDisk(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
                       IN BOOLEAN SingleDisk,
                       IN PBOOLEAN FoundBoot
 );
 
+CODE_SEG("INIT")
 NTSTATUS
-INIT_FUNCTION
 NTAPI
 IopCreateArcNames(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -147,8 +146,8 @@ IopCreateArcNames(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     return Status;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
-INIT_FUNCTION
 NTAPI
 IopCreateArcNamesCd(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
@@ -409,8 +408,8 @@ Cleanup:
     return Status;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
-INIT_FUNCTION
 NTAPI
 IopCreateArcNamesDisk(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
                       IN BOOLEAN SingleDisk,
@@ -831,9 +830,9 @@ Cleanup:
     return Status;
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 IopReassignSystemRoot(IN PLOADER_PARAMETER_BLOCK LoaderBlock,
                       OUT PANSI_STRING NtBootPath)
 {

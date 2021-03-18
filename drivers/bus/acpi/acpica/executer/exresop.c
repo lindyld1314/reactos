@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2020, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -250,7 +250,7 @@ AcpiExResolveOperands (
 
                     TargetOp = AML_DEBUG_OP;
 
-                    /*lint -fallthrough */
+                    ACPI_FALLTHROUGH;
 
                 case ACPI_REFCLASS_ARG:
                 case ACPI_REFCLASS_LOCAL:
@@ -314,13 +314,14 @@ AcpiExResolveOperands (
              * Else not a string - fall through to the normal Reference
              * case below
              */
-            /*lint -fallthrough */
+            ACPI_FALLTHROUGH;
 
         case ARGI_REFERENCE:            /* References: */
         case ARGI_INTEGER_REF:
         case ARGI_OBJECT_REF:
         case ARGI_DEVICE_REF:
         case ARGI_TARGETREF:     /* Allows implicit conversion rules before store */
+        case ARGI_FIXED_TARGET:  /* No implicit conversion before store to target */
         case ARGI_SIMPLE_TARGET: /* Name, Local, or Arg - no implicit conversion  */
         case ARGI_STORE_TARGET:
 
@@ -433,7 +434,7 @@ AcpiExResolveOperands (
              * Known as "Implicit Source Operand Conversion"
              */
             Status = AcpiExConvertToInteger (ObjDesc, StackPtr,
-                ACPI_STRTOUL_BASE16);
+                ACPI_IMPLICIT_CONVERSION);
             if (ACPI_FAILURE (Status))
             {
                 if (Status == AE_TYPE)

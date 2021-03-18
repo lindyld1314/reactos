@@ -1,7 +1,7 @@
 
 set(SARCH "pc" CACHE STRING
 "Sub-architecture to build for. Specify one of:
- pc xbox")
+ pc pc98 xbox")
 
 set(OARCH "pentium" CACHE STRING
 "Generate instructions for this CPU type. Specify one of:
@@ -36,6 +36,25 @@ else()
 "Whether to compile for debugging.")
 endif()
 
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    set(GCC TRUE CACHE BOOL "The compiler is GCC")
+    set(CLANG FALSE CACHE BOOL "The compiler is LLVM Clang")
+elseif(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    # We can use LLVM Clang mimicking CL or GCC. Account for this
+    if (MSVC)
+        set(GCC FALSE CACHE BOOL "The compiler is GCC")
+    else()
+        set(GCC TRUE CACHE BOOL "The compiler is GCC")
+    endif()
+    set(CLANG TRUE CACHE BOOL "The compiler is LLVM Clang")
+elseif(MSVC) # aka CMAKE_C_COMPILER_ID STEQUAL "MSVC"
+    set(GCC FALSE CACHE BOOL "The compiler is GCC")
+    set(CLANG FALSE CACHE BOOL "The compiler is LLVM Clang")
+    # MSVC variable is already set by cmake
+else()
+    message("WARNING: the compiler has not been recognized")
+endif()
+
 if(MSVC AND (NOT USE_CLANG_CL))
     set(KDBG FALSE CACHE BOOL
 "Whether to compile in the integrated kernel debugger.")
@@ -54,10 +73,6 @@ else()
     set(_WINKD_ FALSE CACHE BOOL "Whether to compile with the KD protocol.")
 endif()
 
-set(_ELF_ FALSE CACHE BOOL
-"Whether to compile support for ELF files.
-Do not enable unless you know what you're doing.")
-
 set(BUILD_MP TRUE CACHE BOOL
 "Whether to build the multiprocessor versions of NTOSKRNL and HAL.")
 
@@ -69,9 +84,13 @@ set(_PREFAST_ FALSE CACHE BOOL
 "Whether to enable PREFAST while compiling.")
 set(_VS_ANALYZE_ FALSE CACHE BOOL
 "Whether to enable static analysis while compiling.")
-else()
-set(STACK_PROTECTOR FALSE CACHE BOOL
-"Whether to enbable the GCC stack checker while compiling")
+    # RTC are incompatible with compiler optimizations.
+    cmake_dependent_option(RUNTIME_CHECKS "Whether to enable runtime checks on MSVC" ON
+                           "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+endif()
+
+if(GCC)
+    option(STACK_PROTECTOR "Whether to enable the GCC stack checker while compiling" OFF)
 endif()
 
 set(USE_DUMMY_PSEH FALSE CACHE BOOL

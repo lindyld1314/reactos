@@ -28,9 +28,11 @@ IntPrintUsage()
          << "                   Can only be run under ReactOS and relies on sysreg2," << endl
          << "                   so incompatible with /w" << endl
          << "    /s           - Shut down the system after finishing the tests." << endl
+         << "    /t <num>     - Repeat the test <num> times (1-10000)" << endl
          << "    /w           - Submit the results to the webservice." << endl
          << "                   Requires a \"rosautotest.ini\" with valid login data." << endl
          << "                   Incompatible with the /r option." << endl
+         << "    /l           - List all modules that would run." << endl
          << endl
          << "  module:" << endl
          << "    The module to be tested (i.e. \"advapi32\")" << endl
@@ -47,7 +49,6 @@ IntPrintUsage()
 extern "C" int
 wmain(int argc, wchar_t* argv[])
 {
-    CWineTest WineTest;
     int ReturnValue = 1;
 
     try
@@ -59,10 +60,12 @@ wmain(int argc, wchar_t* argv[])
         Configuration.GetSystemInformation();
         Configuration.GetConfigurationFromFile();
 
-        ss << "\n\nSystem uptime " << setprecision(2) << fixed ;
-        ss << ((float)GetTickCount()/1000) << " seconds\n";
+        ss << endl
+           << endl
+           << "[ROSAUTOTEST] System uptime " << setprecision(2) << fixed;
+        ss << ((float)GetTickCount()/1000) << " seconds" << endl;
         StringOut(ss.str());
-        
+
         /* Report tests startup */
         InitLogs();
         ReportEventW(hLog,
@@ -75,8 +78,27 @@ wmain(int argc, wchar_t* argv[])
                       NULL,
                       NULL);
 
+        if (Configuration.GetRepeatCount() > 1)
+        {
+            stringstream ss1;
+
+            ss1 << "[ROSAUTOTEST] The test will be repeated " << Configuration.GetRepeatCount() << " times" << endl;
+            StringOut(ss1.str());
+        }
+
         /* Run the tests */
-        WineTest.Run();
+        for (unsigned long i = 0; i < Configuration.GetRepeatCount(); i++)
+        {
+            CWineTest WineTest;
+
+            if (Configuration.GetRepeatCount() > 1)
+            {
+                stringstream ss;
+                ss << "[ROSAUTOTEST] Running attempt #" << i+1 << endl;
+                StringOut(ss.str());
+            }
+            WineTest.Run();
+        }
 
         /* For sysreg2 */
         DbgPrint("SYSREG_CHECKPOINT:THIRDBOOT_COMPLETE\n");
@@ -89,14 +111,19 @@ wmain(int argc, wchar_t* argv[])
     }
     catch(CSimpleException& e)
     {
-        StringOut(e.GetMessage());
+        stringstream ss;
+
+        // e.GetMessage() must include ending '\n'.
+        ss << "[ROSAUTOTEST] " << e.GetMessage();
+        StringOut(ss.str());
     }
     catch(CFatalException& e)
     {
         stringstream ss;
 
+        // e.GetMessage() must include ending '\n'.
         ss << "An exception occured in rosautotest." << endl
-           << "Message: " << e.GetMessage() << endl
+           << "Message: " << e.GetMessage()
            << "File: " << e.GetFile() << endl
            << "Line: " << e.GetLine() << endl
            << "Last Win32 Error: " << GetLastError() << endl;

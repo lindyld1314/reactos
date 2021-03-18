@@ -6,7 +6,30 @@
  * \author Adriaan de Jong <dejong@fox-it.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
+ *
+ *  This file is provided under the Apache License 2.0, or the
+ *  GNU General Public License v2.0 or later.
+ *
+ *  **********
+ *  Apache License 2.0:
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may
+ *  not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ *  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ *  **********
+ *
+ *  **********
+ *  GNU General Public License v2.0 or later:
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,6 +44,8 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ *  **********
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
@@ -56,10 +81,6 @@
 #else
 #define mbedtls_calloc calloc
 #define mbedtls_free   free
-#endif
-
-#if defined(MBEDTLS_ARC4_C) || defined(MBEDTLS_CIPHER_NULL_CIPHER)
-#define MBEDTLS_CIPHER_MODE_STREAM
 #endif
 
 /* Implementation that should never be optimized out by the compiler */
@@ -217,9 +238,13 @@ int mbedtls_cipher_set_iv( mbedtls_cipher_context_t *ctx,
                    const unsigned char *iv, size_t iv_len )
 {
     size_t actual_iv_size;
-
-    if( NULL == ctx || NULL == ctx->cipher_info || NULL == iv )
+    if( NULL == ctx || NULL == ctx->cipher_info )
         return( MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA );
+    else if( NULL == iv && iv_len != 0  )
+        return( MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA );
+
+    if( NULL == iv && iv_len == 0 )
+        ctx->iv_size = 0;
 
     /* avoid buffer overflow in ctx->iv */
     if( iv_len > MBEDTLS_MAX_IV_LENGTH )
@@ -235,9 +260,11 @@ int mbedtls_cipher_set_iv( mbedtls_cipher_context_t *ctx,
         if( actual_iv_size > iv_len )
             return( MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA );
     }
-
-    memcpy( ctx->iv, iv, actual_iv_size );
-    ctx->iv_size = actual_iv_size;
+    if ( actual_iv_size != 0 )
+    {
+        memcpy( ctx->iv, iv, actual_iv_size );
+        ctx->iv_size = actual_iv_size;
+    }
 
     return( 0 );
 }
@@ -282,6 +309,10 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
 
     *olen = 0;
     block_size = mbedtls_cipher_get_block_size( ctx );
+    if ( 0 == block_size )
+    {
+        return( MBEDTLS_ERR_CIPHER_INVALID_CONTEXT );
+    }
 
     if( ctx->cipher_info->mode == MBEDTLS_MODE_ECB )
     {
@@ -308,11 +339,6 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
     }
 #endif
 
-    if ( 0 == block_size )
-    {
-        return MBEDTLS_ERR_CIPHER_INVALID_CONTEXT;
-    }
-
     if( input == output &&
        ( ctx->unprocessed_len != 0 || ilen % block_size ) )
     {
@@ -327,8 +353,10 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
         /*
          * If there is not enough data for a full block, cache it.
          */
-        if( ( ctx->operation == MBEDTLS_DECRYPT &&
+        if( ( ctx->operation == MBEDTLS_DECRYPT && NULL != ctx->add_padding &&
                 ilen <= block_size - ctx->unprocessed_len ) ||
+            ( ctx->operation == MBEDTLS_DECRYPT && NULL == ctx->add_padding &&
+                ilen < block_size - ctx->unprocessed_len ) ||
              ( ctx->operation == MBEDTLS_ENCRYPT &&
                 ilen < block_size - ctx->unprocessed_len ) )
         {
@@ -369,14 +397,17 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
          */
         if( 0 != ilen )
         {
-            if( 0 == block_size )
-            {
-                return MBEDTLS_ERR_CIPHER_INVALID_CONTEXT;
-            }
-
+            /* Encryption: only cache partial blocks
+             * Decryption w/ padding: always keep at least one whole block
+             * Decryption w/o padding: only cache partial blocks
+             */
             copy_len = ilen % block_size;
-            if( copy_len == 0 && ctx->operation == MBEDTLS_DECRYPT )
+            if( copy_len == 0 &&
+                ctx->operation == MBEDTLS_DECRYPT &&
+                NULL != ctx->add_padding)
+            {
                 copy_len = block_size;
+            }
 
             memcpy( ctx->unprocessed_data, &( input[ilen - copy_len] ),
                     copy_len );
@@ -518,14 +549,14 @@ static int get_one_and_zeros_padding( unsigned char *input, size_t input_len,
     if( NULL == input || NULL == data_len )
         return( MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA );
 
-    bad = 0xFF;
+    bad = 0x80;
     *data_len = 0;
     for( i = input_len; i > 0; i-- )
     {
         prev_done = done;
-        done |= ( input[i-1] != 0 );
+        done |= ( input[i - 1] != 0 );
         *data_len |= ( i - 1 ) * ( done != prev_done );
-        bad &= ( input[i-1] ^ 0x80 ) | ( done == prev_done );
+        bad ^= input[i - 1] * ( done != prev_done );
     }
 
     return( MBEDTLS_ERR_CIPHER_INVALID_PADDING * ( bad != 0 ) );

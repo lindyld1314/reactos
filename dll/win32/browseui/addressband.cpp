@@ -43,7 +43,6 @@ CAddressBand::CAddressBand()
     fGoButton = NULL;
     fComboBox = NULL;
     fGoButtonShown = false;
-    fAdjustNeeded = 0;
 }
 
 CAddressBand::~CAddressBand()
@@ -65,6 +64,7 @@ void CAddressBand::FocusChange(BOOL bFocus)
 
 HRESULT STDMETHODCALLTYPE CAddressBand::GetBandInfo(DWORD dwBandID, DWORD dwViewMode, DESKBANDINFO *pdbi)
 {
+    if (!m_hWnd || !pdbi)  return E_FAIL;  /* Verify window exists */
     if (pdbi->dwMask & DBIM_MINSIZE)
     {
         if (fGoButtonShown)
@@ -415,8 +415,17 @@ LRESULT CAddressBand::OnTipText(UINT idControl, NMHDR *notifyHeader, BOOL &bHand
 {
     if (notifyHeader->hwndFrom == fGoButton)
     {
-        // TODO
-        // Go to "destination path"
+        WCHAR szText[MAX_PATH];
+        WCHAR szFormat[MAX_PATH];
+        LPNMTBGETINFOTIP pGIT = (LPNMTBGETINFOTIP)notifyHeader;
+
+        if (::GetWindowTextW(fEditControl, szText, _countof(szText)))
+        {
+            LoadStringW(_AtlBaseModule.GetResourceInstance(), IDS_GOBUTTONTIPTEMPLATE, szFormat, _countof(szFormat));
+            wnsprintf(pGIT->pszText, pGIT->cchTextMax, szFormat, szText);
+        }
+        else
+            *pGIT->pszText = 0;
     }
     return 0;
 }
@@ -457,8 +466,6 @@ LRESULT CAddressBand::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHan
     RECT                                    comboBoxBounds;
     long                                    newHeight;
     long                                    newWidth;
-
-    fAdjustNeeded = 1;
 
     if (fGoButtonShown == false)
     {
@@ -515,23 +522,6 @@ LRESULT CAddressBand::OnWindowPosChanging(UINT uMsg, WPARAM wParam, LPARAM lPara
     newHeight = positionInfoCopy.cy;
     newWidth = positionInfoCopy.cx;
 
-/*
-    Sometimes when we get here newWidth = 100 which comes from GetBandInfo and is less than the 200 that we need.
-    We need room for the "Address" text (50 pixels), the "GoButton" (50 pixels), the left and right borders (30 pixels)
-    the icon (20 pixels) and the ComboBox (50 pixels) for handling the text of the current directory. This is 200 pixels.
-    When newWidth = 100 the Addressband ComboBox will only have a single character because it becomes 2 pixels wide.
-    The hack below readjusts the width to the minimum required to allow seeing the whole text and prints out a debug message.
-*/
-
-    if ((newWidth < 200) && (newWidth != 0))
-    {
-        if (fAdjustNeeded == 1)
-        {
-            ERR("CORE-13003 HACK: Addressband ComboBox width readjusted from %ld to 200.\n", newWidth);
-            newWidth = 200;
-            fAdjustNeeded = 0;
-        }
-    }
     SendMessage(fGoButton, TB_GETITEMRECT, 0, reinterpret_cast<LPARAM>(&buttonBounds));
 
     buttonWidth = buttonBounds.right - buttonBounds.left;
@@ -558,10 +548,10 @@ void CAddressBand::CreateGoButton()
     HINSTANCE             shellInstance;
 
     shellInstance = _AtlBaseModule.GetResourceInstance();
-    m_himlNormal = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCE(IDB_GOBUTTON_NORMAL),
-                                           20, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_CREATEDIBSECTION);
-    m_himlHot = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCE(IDB_GOBUTTON_HOT),
+    m_himlNormal = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCEW(IDB_GOBUTTON_NORMAL),
                                         20, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_CREATEDIBSECTION);
+    m_himlHot = ImageList_LoadImageW(shellInstance, MAKEINTRESOURCEW(IDB_GOBUTTON_HOT),
+                                     20, 0, RGB(255, 0, 255), IMAGE_BITMAP, LR_CREATEDIBSECTION);
 
     fGoButton = CreateWindowEx(WS_EX_TOOLWINDOW, TOOLBARCLASSNAMEW, 0, WS_CHILD | WS_CLIPSIBLINGS |
                                WS_CLIPCHILDREN | TBSTYLE_LIST | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_NODIVIDER |

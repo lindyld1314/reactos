@@ -17,9 +17,9 @@
 
 /* PRIVATE FUNCTIONS *********************************************************/
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 Ki386VdmEnablePentiumExtentions(IN BOOLEAN Enable)
 {
     ULONG EFlags, Cr4;
@@ -36,9 +36,9 @@ Ki386VdmEnablePentiumExtentions(IN BOOLEAN Enable)
     __writeeflags(EFlags);
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 KeI386VdmInitialize(VOID)
 {
     NTSTATUS Status;

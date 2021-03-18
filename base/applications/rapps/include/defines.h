@@ -29,7 +29,8 @@
 #include "resource.h"
 #include "winmain.h"
 
-#define APPLICATION_DATABASE_URL L"https://rapps.reactos.org/rappmgr.cab"
+#define APPLICATION_DATABASE_URL L"https://rapps.reactos.org/rappmgr2.cab"
+#define APPLICATION_DATABASE_NAME L"rappmgr2.cab"
 #define MAX_STR_LEN              256
 
 enum AppsCategories
@@ -49,6 +50,7 @@ enum AppsCategories
     ENUM_CAT_TOOLS,
     ENUM_CAT_DRIVERS,
     ENUM_CAT_LIBS,
+    ENUM_CAT_THEMES,
     ENUM_CAT_OTHER,
     ENUM_CAT_SELECTED,
     ENUM_ALL_INSTALLED,

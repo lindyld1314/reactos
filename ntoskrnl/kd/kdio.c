@@ -11,117 +11,112 @@
 
 #include <ntoskrnl.h>
 #include <reactos/buildno.h>
+
 #define NDEBUG
 #include <debug.h>
 
 /* GLOBALS *******************************************************************/
 
 #define KdpBufferSize  (1024 * 512)
-BOOLEAN KdpLoggingEnabled = FALSE;
-PCHAR KdpDebugBuffer = NULL;
-volatile ULONG KdpCurrentPosition = 0;
-volatile ULONG KdpFreeBytes = 0;
-KSPIN_LOCK KdpDebugLogSpinLock;
-KEVENT KdpLoggerThreadEvent;
-HANDLE KdpLogFileHandle;
+static BOOLEAN KdpLoggingEnabled = FALSE;
+static BOOLEAN KdpLoggingStarting = FALSE;
+static PCHAR KdpDebugBuffer = NULL;
+static volatile ULONG KdpCurrentPosition = 0;
+static volatile ULONG KdpFreeBytes = 0;
+static KSPIN_LOCK KdpDebugLogSpinLock;
+static KEVENT KdpLoggerThreadEvent;
+static HANDLE KdpLogFileHandle;
 ANSI_STRING KdpLogFileName = RTL_CONSTANT_STRING("\\SystemRoot\\debug.log");
+extern ULONG ExpInitializationPhase;
 
-KSPIN_LOCK KdpSerialSpinLock;
+static KSPIN_LOCK KdpSerialSpinLock;
 ULONG  SerialPortNumber = DEFAULT_DEBUG_PORT;
 CPPORT SerialPortInfo   = {0, DEFAULT_DEBUG_BAUD_RATE, 0};
 
-/* Current Port in use. FIXME: Do we support more then one? */
-ULONG KdpPort;
-
 #define KdpScreenLineLengthDefault 80
-CHAR KdpScreenLineBuffer[KdpScreenLineLengthDefault + 1] = "";
-ULONG KdpScreenLineBufferPos = 0, KdpScreenLineLength = 0;
+static CHAR KdpScreenLineBuffer[KdpScreenLineLengthDefault + 1] = "";
+static ULONG KdpScreenLineBufferPos = 0, KdpScreenLineLength = 0;
 
 const ULONG KdpDmesgBufferSize = 128 * 1024; // 512*1024; // 5*1024*1024;
 PCHAR KdpDmesgBuffer = NULL;
 volatile ULONG KdpDmesgCurrentPosition = 0;
 volatile ULONG KdpDmesgFreeBytes = 0;
 volatile ULONG KdbDmesgTotalWritten = 0;
-KSPIN_LOCK KdpDmesgLogSpinLock;
 volatile BOOLEAN KdbpIsInDmesgMode = FALSE;
+static KSPIN_LOCK KdpDmesgLogSpinLock;
 
-/* UTILITY FUNCTIONS *********************************************************/
+KDP_DEBUG_MODE KdpDebugMode;
+LIST_ENTRY KdProviders = {&KdProviders, &KdProviders};
+KD_DISPATCH_TABLE DispatchTable[KdMax];
 
-/*
- * Get the total size of the memory before
- * Mm is initialized, by counting the number
- * of physical pages. Useful for debug logging.
- *
- * Strongly inspired by:
- * mm\ARM3\mminit.c : MiScanMemoryDescriptors(...)
- *
- * See also: kd64\kdinit.c
- */
-static SIZE_T
-INIT_FUNCTION
-KdpGetMemorySizeInMBs(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
+PKDP_INIT_ROUTINE InitRoutines[KdMax] = {KdpScreenInit,
+                                         KdpSerialInit,
+                                         KdpDebugLogInit,
+                                         KdpKdbgInit};
+
+static ULONG KdbgNextApiNumber = DbgKdContinueApi;
+static CONTEXT KdbgContext;
+static EXCEPTION_RECORD64 KdbgExceptionRecord;
+static BOOLEAN KdbgFirstChanceException;
+static NTSTATUS KdbgContinueStatus = STATUS_SUCCESS;
+
+/* LOCKING FUNCTIONS *********************************************************/
+
+KIRQL
+NTAPI
+KdpAcquireLock(IN PKSPIN_LOCK SpinLock)
 {
-    PLIST_ENTRY ListEntry;
-    PMEMORY_ALLOCATION_DESCRIPTOR Descriptor;
-    SIZE_T NumberOfPhysicalPages = 0;
+    KIRQL OldIrql;
 
-    /* Loop the memory descriptors */
-    for (ListEntry = LoaderBlock->MemoryDescriptorListHead.Flink;
-         ListEntry != &LoaderBlock->MemoryDescriptorListHead;
-         ListEntry = ListEntry->Flink)
+    /* Acquire the spinlock without waiting at raised IRQL */
+    while (TRUE)
     {
-        /* Get the descriptor */
-        Descriptor = CONTAINING_RECORD(ListEntry,
-                                       MEMORY_ALLOCATION_DESCRIPTOR,
-                                       ListEntry);
+        /* Loop until the spinlock becomes available */
+        while (!KeTestSpinLock(SpinLock));
 
-        /* Check if this is invisible memory */
-        if ((Descriptor->MemoryType == LoaderFirmwarePermanent) ||
-            (Descriptor->MemoryType == LoaderSpecialMemory) ||
-            (Descriptor->MemoryType == LoaderHALCachedMemory) ||
-            (Descriptor->MemoryType == LoaderBBTMemory))
-        {
-            /* Skip this descriptor */
-            continue;
-        }
+        /* Spinlock is free, raise IRQL to high level */
+        KeRaiseIrql(HIGH_LEVEL, &OldIrql);
 
-        /* Check if this is bad memory */
-        if (Descriptor->MemoryType != LoaderBad)
-        {
-            /* Count this in the total of pages */
-            NumberOfPhysicalPages += Descriptor->PageCount;
-        }
+        /* Try to get the spinlock */
+        if (KeTryToAcquireSpinLockAtDpcLevel(SpinLock))
+            break;
+
+        /* Someone else got the spinlock, lower IRQL back */
+        KeLowerIrql(OldIrql);
     }
 
-    return NumberOfPhysicalPages * PAGE_SIZE / 1024 / 1024;
+    return OldIrql;
 }
 
-/* See also: kd64\kdinit.c */
-static VOID
-INIT_FUNCTION
-KdpPrintBanner(IN SIZE_T MemSizeMBs)
+VOID
+NTAPI
+KdpReleaseLock(IN PKSPIN_LOCK SpinLock,
+               IN KIRQL OldIrql)
 {
-    DPRINT1("-----------------------------------------------------\n");
-    DPRINT1("ReactOS " KERNEL_VERSION_STR " (Build " KERNEL_VERSION_BUILD_STR ") (Commit " KERNEL_VERSION_COMMIT_HASH ")\n");
-    DPRINT1("%u System Processor [%u MB Memory]\n", KeNumberProcessors, MemSizeMBs);
-    DPRINT1("Command Line: %s\n", KeLoaderBlock->LoadOptions);
-    DPRINT1("ARC Paths: %s %s %s %s\n", KeLoaderBlock->ArcBootDeviceName, KeLoaderBlock->NtHalPathName, KeLoaderBlock->ArcHalDeviceName, KeLoaderBlock->NtBootPathName);
+    /* Release the spinlock */
+    KiReleaseSpinLock(SpinLock);
+    // KeReleaseSpinLockFromDpcLevel(SpinLock);
+
+    /* Restore the old IRQL */
+    KeLowerIrql(OldIrql);
 }
 
 /* FILE DEBUG LOG FUNCTIONS **************************************************/
 
-VOID
+static VOID
 NTAPI
 KdpLoggerThread(PVOID Context)
 {
     ULONG beg, end, num;
     IO_STATUS_BLOCK Iosb;
 
+    ASSERT(ExGetPreviousMode() == KernelMode);
+
     KdpLoggingEnabled = TRUE;
 
     while (TRUE)
     {
-        KeWaitForSingleObject(&KdpLoggerThreadEvent, 0, KernelMode, FALSE, NULL);
+        KeWaitForSingleObject(&KdpLoggerThreadEvent, Executive, KernelMode, FALSE, NULL);
 
         /* Bug */
         /* Keep KdpCurrentPosition and KdpFreeBytes values in local
@@ -157,32 +152,19 @@ KdpLoggerThread(PVOID Context)
     }
 }
 
-VOID
+static VOID
 NTAPI
-KdpPrintToLogFile(PCH String,
+KdpPrintToLogFile(PCHAR String,
                   ULONG StringLength)
 {
-    ULONG beg, end, num;
     KIRQL OldIrql;
+    ULONG beg, end, num;
+    BOOLEAN DoReinit = FALSE;
 
     if (KdpDebugBuffer == NULL) return;
 
     /* Acquire the printing spinlock without waiting at raised IRQL */
-    while (TRUE)
-    {
-        /* Wait when the spinlock becomes available */
-        while (!KeTestSpinLock(&KdpDebugLogSpinLock));
-
-        /* Spinlock was free, raise IRQL */
-        KeRaiseIrql(HIGH_LEVEL, &OldIrql);
-
-        /* Try to get the spinlock */
-        if (KeTryToAcquireSpinLockAtDpcLevel(&KdpDebugLogSpinLock))
-            break;
-
-        /* Someone else got the spinlock, lower IRQL back */
-        KeLowerIrql(OldIrql);
-    }
+    OldIrql = KdpAcquireLock(&KdpDebugLogSpinLock);
 
     beg = KdpCurrentPosition;
     num = KdpFreeBytes;
@@ -206,21 +188,27 @@ KdpPrintToLogFile(PCH String,
         }
     }
 
-    /* Release spinlock */
-    KiReleaseSpinLock(&KdpDebugLogSpinLock);
+    /* Release the spinlock */
+    if (OldIrql == PASSIVE_LEVEL && !KdpLoggingStarting && !KdpLoggingEnabled && ExpInitializationPhase >= 2)
+    {
+        DoReinit = TRUE;
+    }
+    KdpReleaseLock(&KdpDebugLogSpinLock, OldIrql);
 
-    /* Lower IRQL */
-    KeLowerIrql(OldIrql);
+    if (DoReinit)
+    {
+        KdpLoggingStarting = TRUE;
+        KdpDebugLogInit(NULL, 3);
+    }
 
     /* Signal the logger thread */
     if (OldIrql <= DISPATCH_LEVEL && KdpLoggingEnabled)
-        KeSetEvent(&KdpLoggerThreadEvent, 0, FALSE);
+        KeSetEvent(&KdpLoggerThreadEvent, IO_NO_INCREMENT, FALSE);
 }
 
 VOID
 NTAPI
-INIT_FUNCTION
-KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
+KdpDebugLogInit(PKD_DISPATCH_TABLE DispatchTable,
                 ULONG BootPhase)
 {
     NTSTATUS Status;
@@ -229,7 +217,6 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
     IO_STATUS_BLOCK Iosb;
     HANDLE ThreadHandle;
     KPRIORITY Priority;
-    SIZE_T MemSizeMBs;
 
     if (!KdpDebugMode.File) return;
 
@@ -238,12 +225,11 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
         KdComPortInUse = NULL;
 
         /* Write out the functions that we support for now */
-        DispatchTable->KdpInitRoutine = KdpInitDebugLog;
+        DispatchTable->KdpInitRoutine = KdpDebugLogInit;
         DispatchTable->KdpPrintRoutine = KdpPrintToLogFile;
 
         /* Register as a Provider */
         InsertTailList(&KdProviders, &DispatchTable->KdProvidersList);
-
     }
     else if (BootPhase == 1)
     {
@@ -254,12 +240,6 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
         /* Initialize spinlock */
         KeInitializeSpinLock(&KdpDebugLogSpinLock);
 
-        /* Display separator + ReactOS version at start of the debug log */
-        MemSizeMBs = MmNumberOfPhysicalPages * PAGE_SIZE / 1024 / 1024;
-        KdpPrintBanner(MemSizeMBs);
-    }
-    else if (BootPhase == 2)
-    {
         HalDisplayString("\r\n   File log debugging enabled\r\n\r\n");
     }
     else if (BootPhase == 3)
@@ -270,12 +250,12 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
 
         InitializeObjectAttributes(&ObjectAttributes,
                                    &FileName,
-                                   0,
+                                   OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
                                    NULL,
                                    NULL);
 
         /* Create the log file */
-        Status = NtCreateFile(&KdpLogFileHandle,
+        Status = ZwCreateFile(&KdpLogFileHandle,
                               FILE_APPEND_DATA | SYNCHRONIZE,
                               &ObjectAttributes,
                               &Iosb,
@@ -289,7 +269,11 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
 
         RtlFreeUnicodeString(&FileName);
 
-        if (!NT_SUCCESS(Status)) return;
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("Failed to open log file: 0x%08x\n", Status);
+            return;
+        }
 
         KeInitializeEvent(&KdpLoggerThreadEvent, SynchronizationEvent, TRUE);
 
@@ -301,14 +285,19 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
                                       NULL,
                                       KdpLoggerThread,
                                       NULL);
-
-        if (!NT_SUCCESS(Status)) return;
+        if (!NT_SUCCESS(Status))
+        {
+            ZwClose(KdpLogFileHandle);
+            return;
+        }
 
         Priority = 7;
-        NtSetInformationThread(ThreadHandle,
+        ZwSetInformationThread(ThreadHandle,
                                ThreadPriority,
                                &Priority,
                                sizeof(Priority));
+
+        ZwClose(ThreadHandle);
     }
 }
 
@@ -316,28 +305,14 @@ KdpInitDebugLog(PKD_DISPATCH_TABLE DispatchTable,
 
 VOID
 NTAPI
-KdpSerialDebugPrint(LPSTR Message,
+KdpSerialDebugPrint(PCHAR Message,
                     ULONG Length)
 {
+    PCHAR pch = (PCHAR)Message;
     KIRQL OldIrql;
-    PCHAR pch = (PCHAR) Message;
 
     /* Acquire the printing spinlock without waiting at raised IRQL */
-    while (TRUE)
-    {
-        /* Wait when the spinlock becomes available */
-        while (!KeTestSpinLock(&KdpSerialSpinLock));
-
-        /* Spinlock was free, raise IRQL */
-        KeRaiseIrql(HIGH_LEVEL, &OldIrql);
-
-        /* Try to get the spinlock */
-        if (KeTryToAcquireSpinLockAtDpcLevel(&KdpSerialSpinLock))
-            break;
-
-        /* Someone else got the spinlock, lower IRQL back */
-        KeLowerIrql(OldIrql);
-    }
+    OldIrql = KdpAcquireLock(&KdpSerialSpinLock);
 
     /* Output the message */
     while (pch < Message + Length && *pch != '\0')
@@ -350,11 +325,8 @@ KdpSerialDebugPrint(LPSTR Message,
         pch++;
     }
 
-    /* Release spinlock */
-    KiReleaseSpinLock(&KdpSerialSpinLock);
-
-    /* Lower IRQL */
-    KeLowerIrql(OldIrql);
+    /* Release the spinlock */
+    KdpReleaseLock(&KdpSerialSpinLock, OldIrql);
 }
 
 VOID
@@ -362,7 +334,6 @@ NTAPI
 KdpSerialInit(PKD_DISPATCH_TABLE DispatchTable,
               ULONG BootPhase)
 {
-    SIZE_T MemSizeMBs;
     if (!KdpDebugMode.Serial) return;
 
     if (BootPhase == 0)
@@ -384,12 +355,8 @@ KdpSerialInit(PKD_DISPATCH_TABLE DispatchTable,
 
         /* Register as a Provider */
         InsertTailList(&KdProviders, &DispatchTable->KdProvidersList);
-
-        /* Display separator + ReactOS version at start of the debug log */
-        MemSizeMBs = KdpGetMemorySizeInMBs(KeLoaderBlock);
-        KdpPrintBanner(MemSizeMBs);
     }
-    else if (BootPhase == 2)
+    else if (BootPhase == 1)
     {
         HalDisplayString("\r\n   Serial debugging enabled\r\n\r\n");
     }
@@ -397,27 +364,58 @@ KdpSerialInit(PKD_DISPATCH_TABLE DispatchTable,
 
 /* SCREEN FUNCTIONS **********************************************************/
 
+VOID
+KdpScreenAcquire(VOID)
+{
+    if (InbvIsBootDriverInstalled() /* &&
+        !InbvCheckDisplayOwnership() */)
+    {
+        /* Acquire ownership and reset the display */
+        InbvAcquireDisplayOwnership();
+        InbvResetDisplay();
+        InbvSolidColorFill(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, BV_COLOR_BLACK);
+        InbvSetTextColor(BV_COLOR_WHITE);
+        InbvInstallDisplayStringFilter(NULL);
+        InbvEnableDisplayString(TRUE);
+        InbvSetScrollRegion(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
+    }
+}
+
+// extern VOID NTAPI InbvSetDisplayOwnership(IN BOOLEAN DisplayOwned);
+
+VOID
+KdpScreenRelease(VOID)
+{
+    if (InbvIsBootDriverInstalled()&&
+        InbvCheckDisplayOwnership())
+    {
+        /* Release the display */
+        // InbvSetDisplayOwnership(FALSE);
+        InbvNotifyDisplayOwnershipLost(NULL);
+    }
+}
+
 /*
  * Screen debug logger function KdpScreenPrint() writes text messages into
  * KdpDmesgBuffer, using it as a circular buffer. KdpDmesgBuffer contents could
  * be later (re)viewed using dmesg command of kdbg. KdpScreenPrint() protects
  * KdpDmesgBuffer from simultaneous writes by use of KdpDmesgLogSpinLock.
  */
-VOID
+static VOID
 NTAPI
-KdpScreenPrint(LPSTR Message,
+KdpScreenPrint(PCHAR Message,
                ULONG Length)
 {
-    ULONG beg, end, num;
+    PCHAR pch = (PCHAR)Message;
     KIRQL OldIrql;
-    PCHAR pch = (PCHAR) Message;
+    ULONG beg, end, num;
 
     while (pch < Message + Length && *pch)
     {
-        if(*pch == '\b')
+        if (*pch == '\b')
         {
             /* HalDisplayString does not support '\b'. Workaround it and use '\r' */
-            if(KdpScreenLineLength > 0)
+            if (KdpScreenLineLength > 0)
             {
                 /* Remove last character from buffer */
                 KdpScreenLineBuffer[--KdpScreenLineLength] = '\0';
@@ -434,10 +432,10 @@ KdpScreenPrint(LPSTR Message,
             KdpScreenLineBuffer[KdpScreenLineLength] = '\0';
         }
 
-        if(*pch == '\n' || KdpScreenLineLength == KdpScreenLineLengthDefault)
+        if (*pch == '\n' || KdpScreenLineLength == KdpScreenLineLengthDefault)
         {
             /* Print buffered characters */
-            if(KdpScreenLineBufferPos != KdpScreenLineLength)
+            if (KdpScreenLineBufferPos != KdpScreenLineLength)
                 HalDisplayString(KdpScreenLineBuffer + KdpScreenLineBufferPos);
 
             /* Clear line buffer */
@@ -449,7 +447,7 @@ KdpScreenPrint(LPSTR Message,
     }
 
     /* Print buffered characters */
-    if(KdpScreenLineBufferPos != KdpScreenLineLength)
+    if (KdpScreenLineBufferPos != KdpScreenLineLength)
     {
         HalDisplayString(KdpScreenLineBuffer + KdpScreenLineBufferPos);
         KdpScreenLineBufferPos = KdpScreenLineLength;
@@ -463,21 +461,7 @@ KdpScreenPrint(LPSTR Message,
       return;
 
     /* Acquire the printing spinlock without waiting at raised IRQL */
-    while (TRUE)
-    {
-        /* Wait when the spinlock becomes available */
-        while (!KeTestSpinLock(&KdpDmesgLogSpinLock));
-
-        /* Spinlock was free, raise IRQL */
-        KeRaiseIrql(HIGH_LEVEL, &OldIrql);
-
-        /* Try to get the spinlock */
-        if (KeTryToAcquireSpinLockAtDpcLevel(&KdpDmesgLogSpinLock))
-            break;
-
-        /* Someone else got the spinlock, lower IRQL back */
-        KeLowerIrql(OldIrql);
-    }
+    OldIrql = KdpAcquireLock(&KdpDmesgLogSpinLock);
 
     /* Invariant: always_true(KdpDmesgFreeBytes == KdpDmesgBufferSize);
      * set num to min(KdpDmesgFreeBytes, Length).
@@ -502,11 +486,8 @@ KdpScreenPrint(LPSTR Message,
         KdbDmesgTotalWritten += num;
     }
 
-    /* Release spinlock */
-    KiReleaseSpinLock(&KdpDmesgLogSpinLock);
-
-    /* Lower IRQL */
-    KeLowerIrql(OldIrql);
+    /* Release the spinlock */
+    KdpReleaseLock(&KdpDmesgLogSpinLock, OldIrql);
 
     /* Optional step(?): find out a way to notify about buffer exhaustion,
      * and possibly fall into kbd to use dmesg command: user will read
@@ -519,7 +500,6 @@ NTAPI
 KdpScreenInit(PKD_DISPATCH_TABLE DispatchTable,
               ULONG BootPhase)
 {
-    SIZE_T MemSizeMBs;
     if (!KdpDebugMode.Screen) return;
 
     if (BootPhase == 0)
@@ -542,86 +522,272 @@ KdpScreenInit(PKD_DISPATCH_TABLE DispatchTable,
         KdbDmesgTotalWritten = 0;
 
         /* Take control of the display */
-        InbvAcquireDisplayOwnership();
-        InbvResetDisplay();
-        InbvSolidColorFill(0, 0, 639, 479, 0);
-        InbvSetTextColor(15);
-        InbvSetScrollRegion(0, 0, 639, 479);
-        InbvInstallDisplayStringFilter(NULL);
-        InbvEnableDisplayString(TRUE);
+        KdpScreenAcquire();
 
         /* Initialize spinlock */
         KeInitializeSpinLock(&KdpDmesgLogSpinLock);
 
-        /* Display separator + ReactOS version at start of the debug log */
-        MemSizeMBs = MmNumberOfPhysicalPages * PAGE_SIZE / 1024 / 1024;
-        KdpPrintBanner(MemSizeMBs);
-    }
-    else if (BootPhase == 2)
-    {
         HalDisplayString("\r\n   Screen debugging enabled\r\n\r\n");
     }
 }
 
 /* GENERAL FUNCTIONS *********************************************************/
 
-ULONG
+BOOLEAN
 NTAPI
 KdpPrintString(
-    _In_reads_bytes_(Length) PCHAR UnsafeString,
-    _In_ ULONG Length,
-    _In_ KPROCESSOR_MODE PreviousMode)
+    _In_ PSTRING Output);
+
+extern STRING KdbPromptString;
+
+VOID
+NTAPI
+KdSendPacket(
+    IN ULONG PacketType,
+    IN PSTRING MessageHeader,
+    IN PSTRING MessageData,
+    IN OUT PKD_CONTEXT Context)
 {
-    PLIST_ENTRY CurrentEntry;
-    PKD_DISPATCH_TABLE CurrentTable;
-    PCHAR String;
-    CHAR StringBuffer[512];
-
-    if (!KdpDebugMode.Value) return 0;
-
-    Length = min(Length, sizeof(StringBuffer));
-
-    if (PreviousMode != KernelMode)
+    if (PacketType == PACKET_TYPE_KD_DEBUG_IO)
     {
-        _SEH2_TRY
+        PSTRING Output = MessageData;
+        PLIST_ENTRY CurrentEntry;
+        PKD_DISPATCH_TABLE CurrentTable;
+
+        if (!KdpDebugMode.Value) return;
+
+        /* Call the registered handlers */
+        CurrentEntry = KdProviders.Flink;
+        while (CurrentEntry != &KdProviders)
         {
-            ProbeForRead(UnsafeString, Length, 1);
-            String = StringBuffer;
-            RtlCopyMemory(String, UnsafeString, Length);
+            /* Get the current table */
+            CurrentTable = CONTAINING_RECORD(CurrentEntry,
+                                             KD_DISPATCH_TABLE,
+                                             KdProvidersList);
+
+            /* Call it */
+            CurrentTable->KdpPrintRoutine(Output->Buffer, Output->Length);
+
+            /* Next Table */
+            CurrentEntry = CurrentEntry->Flink;
         }
-        _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+        return;
+    }
+    else if (PacketType == PACKET_TYPE_KD_STATE_CHANGE64)
+    {
+        PDBGKD_ANY_WAIT_STATE_CHANGE WaitStateChange = (PDBGKD_ANY_WAIT_STATE_CHANGE)MessageHeader->Buffer;
+        if (WaitStateChange->NewState == DbgKdLoadSymbolsStateChange)
         {
-            return 0;
+#ifdef KDBG
+            PLDR_DATA_TABLE_ENTRY LdrEntry;
+            if (!WaitStateChange->u.LoadSymbols.UnloadSymbols)
+            {
+                /* Load symbols. Currently implemented only for KDBG! */
+                if (KdbpSymFindModule((PVOID)(ULONG_PTR)WaitStateChange->u.LoadSymbols.BaseOfDll, NULL, -1, &LdrEntry))
+                {
+                    KdbSymProcessSymbols(LdrEntry);
+                }
+            }
+#endif
+            return;
         }
-        _SEH2_END;
+        else if (WaitStateChange->NewState == DbgKdExceptionStateChange)
+        {
+            KdbgNextApiNumber = DbgKdGetContextApi;
+            KdbgExceptionRecord = WaitStateChange->u.Exception.ExceptionRecord;
+            KdbgFirstChanceException = WaitStateChange->u.Exception.FirstChance;
+            return;
+        }
     }
-    else
+    else if (PacketType == PACKET_TYPE_KD_STATE_MANIPULATE)
     {
-        String = UnsafeString;
-    }
+        PDBGKD_MANIPULATE_STATE64 ManipulateState = (PDBGKD_MANIPULATE_STATE64)MessageHeader->Buffer;
+        if (ManipulateState->ApiNumber == DbgKdGetContextApi)
+        {
+            KD_CONTINUE_TYPE Result;
 
-    /* Call the registered handlers */
-    CurrentEntry = KdProviders.Flink;
-    while (CurrentEntry != &KdProviders)
+#ifdef KDBG
+            /* Check if this is an assertion failure */
+            if (KdbgExceptionRecord.ExceptionCode == STATUS_ASSERTION_FAILURE)
+            {
+                /* Bump EIP to the instruction following the int 2C */
+                KdbgContext.Eip += 2;
+            }
+
+            Result = KdbEnterDebuggerException(&KdbgExceptionRecord,
+                                               KdbgContext.SegCs & 1,
+                                               &KdbgContext,
+                                               KdbgFirstChanceException);
+#else
+            /* We'll manually dump the stack for the user... */
+            KeRosDumpStackFrames(NULL, 0);
+            Result = kdHandleException;
+#endif
+            if (Result != kdHandleException)
+                KdbgContinueStatus = STATUS_SUCCESS;
+            else
+                KdbgContinueStatus = STATUS_UNSUCCESSFUL;
+            KdbgNextApiNumber = DbgKdSetContextApi;
+            return;
+        }
+        else if (ManipulateState->ApiNumber == DbgKdSetContextApi)
+        {
+            KdbgNextApiNumber = DbgKdContinueApi;
+            return;
+        }
+    }
+    UNIMPLEMENTED;
+}
+
+KDSTATUS
+NTAPI
+KdReceivePacket(
+    IN ULONG PacketType,
+    OUT PSTRING MessageHeader,
+    OUT PSTRING MessageData,
+    OUT PULONG DataLength,
+    IN OUT PKD_CONTEXT Context)
+{
+#ifdef KDBG
+    KIRQL OldIrql;
+    STRING StringChar;
+    CHAR Response;
+    USHORT i;
+    ULONG DummyScanCode;
+    CHAR MessageBuffer[100];
+    STRING ResponseString;
+#endif
+
+    if (PacketType == PACKET_TYPE_KD_STATE_MANIPULATE)
     {
-        /* Get the current table */
-        CurrentTable = CONTAINING_RECORD(CurrentEntry,
-                                         KD_DISPATCH_TABLE,
-                                         KdProvidersList);
+        PDBGKD_MANIPULATE_STATE64 ManipulateState = (PDBGKD_MANIPULATE_STATE64)MessageHeader->Buffer;
+        RtlZeroMemory(MessageHeader->Buffer, MessageHeader->MaximumLength);
+        if (KdbgNextApiNumber == DbgKdGetContextApi)
+        {
+            ManipulateState->ApiNumber = DbgKdGetContextApi;
+            MessageData->Length = 0;
+            MessageData->Buffer = (PCHAR)&KdbgContext;
+            return KdPacketReceived;
+        }
+        else if (KdbgNextApiNumber == DbgKdSetContextApi)
+        {
+            ManipulateState->ApiNumber = DbgKdSetContextApi;
+            MessageData->Length = sizeof(KdbgContext);
+            MessageData->Buffer = (PCHAR)&KdbgContext;
+            return KdPacketReceived;
+        }
+        else if (KdbgNextApiNumber != DbgKdContinueApi)
+        {
+            UNIMPLEMENTED;
+        }
+        ManipulateState->ApiNumber = DbgKdContinueApi;
+        ManipulateState->u.Continue.ContinueStatus = KdbgContinueStatus;
 
-        /* Call it */
-        CurrentTable->KdpPrintRoutine(String, Length);
+        /* Prepare for next time */
+        KdbgNextApiNumber = DbgKdContinueApi;
+        KdbgContinueStatus = STATUS_SUCCESS;
 
-        /* Next Table */
-        CurrentEntry = CurrentEntry->Flink;
+        return KdPacketReceived;
     }
 
-    /* Call the Wrapper Routine */
-    if (WrapperTable.KdpPrintRoutine)
-        WrapperTable.KdpPrintRoutine(String, Length);
+    if (PacketType != PACKET_TYPE_KD_DEBUG_IO)
+        return KdPacketTimedOut;
 
-    /* Return the Length */
-    return Length;
+#ifdef KDBG
+    ResponseString.Buffer = MessageBuffer;
+    ResponseString.Length = 0;
+    ResponseString.MaximumLength = min(sizeof(MessageBuffer), MessageData->MaximumLength);
+    StringChar.Buffer = &Response;
+    StringChar.Length = StringChar.MaximumLength = sizeof(Response);
+
+    /* Display the string and print a new line for log neatness */
+    *StringChar.Buffer = '\n';
+    KdpPrintString(&StringChar);
+
+    /* Print the kdb prompt */
+    KdpPrintString(&KdbPromptString);
+
+    // TODO: Use an improved KdbpReadCommand() function for our purposes.
+
+    /* Acquire the printing spinlock without waiting at raised IRQL */
+    OldIrql = KdpAcquireLock(&KdpSerialSpinLock);
+
+    if (!(KdbDebugState & KD_DEBUG_KDSERIAL))
+        KbdDisableMouse();
+
+    /* Loop the whole string */
+    for (i = 0; i < ResponseString.MaximumLength; i++)
+    {
+        /* Check if this is serial debugging mode */
+        if (KdbDebugState & KD_DEBUG_KDSERIAL)
+        {
+            /* Get the character from serial */
+            do
+            {
+                Response = KdbpTryGetCharSerial(MAXULONG);
+            } while (Response == -1);
+        }
+        else
+        {
+            /* Get the response from the keyboard */
+            do
+            {
+                Response = KdbpTryGetCharKeyboard(&DummyScanCode, MAXULONG);
+            } while (Response == -1);
+        }
+
+        /* Check for return */
+        if (Response == '\r')
+        {
+            /*
+             * We might need to discard the next '\n'.
+             * Wait a bit to make sure we receive it.
+             */
+            KeStallExecutionProcessor(100000);
+
+            /* Check the mode */
+            if (KdbDebugState & KD_DEBUG_KDSERIAL)
+            {
+                /* Read and discard the next character, if any */
+                KdbpTryGetCharSerial(5);
+            }
+            else
+            {
+                /* Read and discard the next character, if any */
+                KdbpTryGetCharKeyboard(&DummyScanCode, 5);
+            }
+
+            /*
+             * Null terminate the output string -- documentation states that
+             * DbgPrompt does not null terminate, but it does
+             */
+            *(PCHAR)(ResponseString.Buffer + i) = 0;
+            break;
+        }
+
+        /* Write it back and print it to the log */
+        *(PCHAR)(ResponseString.Buffer + i) = Response;
+        KdpReleaseLock(&KdpSerialSpinLock, OldIrql);
+        KdpPrintString(&StringChar);
+        OldIrql = KdpAcquireLock(&KdpSerialSpinLock);
+    }
+
+    /* Print a new line */
+    *StringChar.Buffer = '\n';
+    KdpPrintString(&StringChar);
+
+    /* Return the length */
+    RtlCopyMemory(MessageData->Buffer, ResponseString.Buffer, i);
+    *DataLength = i;
+
+    if (!(KdbDebugState & KD_DEBUG_KDSERIAL))
+        KbdEnableMouse();
+
+    /* Release the spinlock */
+    KdpReleaseLock(&KdpSerialSpinLock, OldIrql);
+
+#endif
+    return KdPacketReceived;
 }
 
 /* EOF */

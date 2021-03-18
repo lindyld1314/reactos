@@ -22,12 +22,14 @@ list(APPEND SOURCE
     shlfolder.c
     shlview.c
     string.c
-    systray.c
-    precomp.h)
+    systray.c)
+
+list(APPEND PCH_SKIP_SOURCE
+    testlist.c)
 
 add_executable(shell32_winetest
     ${SOURCE}
-    testlist.c
+    ${PCH_SKIP_SOURCE}
     rsrc.rc)
 
 target_link_libraries(shell32_winetest uuid)
@@ -36,7 +38,9 @@ add_importlibs(shell32_winetest shell32 shlwapi ole32 oleaut32 user32 gdi32 adva
 
 if(MSVC)
     add_importlibs(shell32_winetest ntdll)
+else()
+    target_compile_options(shell32_winetest PRIVATE -Wno-format-overflow)
 endif()
 
-add_pch(shell32_winetest precomp.h SOURCE)
+add_pch(shell32_winetest precomp.h "${PCH_SKIP_SOURCE}")
 add_rostests_file(TARGET shell32_winetest)

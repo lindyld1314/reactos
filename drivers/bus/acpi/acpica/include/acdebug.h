@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2017, Intel Corp.
+ * Copyright (C) 2000 - 2020, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,7 +51,8 @@
 #endif
 
 
-#define ACPI_DEBUG_BUFFER_SIZE  0x4000      /* 16K buffer for return objects */
+#define ACPI_DEBUG_BUFFER_SIZE      0x4000      /* 16K buffer for return objects */
+#define ACPI_DEBUG_LENGTH_FORMAT    " (%.4X bits, %.3X bytes)"
 
 typedef struct acpi_db_command_info
 {
@@ -78,6 +79,7 @@ typedef struct acpi_db_execute_walk
 {
     UINT32                  Count;
     UINT32                  MaxCount;
+    char                    NameSeg[ACPI_NAMESEG_SIZE + 1];
 
 } ACPI_DB_EXECUTE_WALK;
 
@@ -86,6 +88,7 @@ typedef struct acpi_db_execute_walk
 
 #define EX_NO_SINGLE_STEP               1
 #define EX_SINGLE_STEP                  2
+#define EX_ALL                          4
 
 
 /*
@@ -236,6 +239,10 @@ void
 AcpiDbEvaluatePredefinedNames (
     void);
 
+void
+AcpiDbEvaluateAll (
+    char                    *NameSeg);
+
 
 /*
  * dbnames - namespace commands
@@ -282,6 +289,10 @@ AcpiDbFindReferences (
 void
 AcpiDbGetBusInfo (
     void);
+
+ACPI_STATUS
+AcpiDbDisplayFields (
+    UINT32                  AddressSpaceId);
 
 
 /*
@@ -342,6 +353,12 @@ AcpiDbExecute (
     char                    **Args,
     ACPI_OBJECT_TYPE        *Types,
     UINT32                  Flags);
+
+void
+AcpiDbCreateExecutionThread (
+    char                    *MethodNameArg,
+    char                    **Arguments,
+    ACPI_OBJECT_TYPE        *Types);
 
 void
 AcpiDbCreateExecutionThreads (

@@ -29,6 +29,24 @@ Author:
 #define MAX_BUS_NAME 24
 
 //
+// PLUGPLAY_CONTROL_PROPERTY_DATA.Properties
+//
+#define PNP_PROPERTY_UI_NUMBER                        0
+#define PNP_PROPERTY_PHYSICAL_DEVICE_OBJECT_NAME      1
+#define PNP_PROPERTY_BUSTYPEGUID                      2
+#define PNP_PROPERTY_LEGACYBUSTYPE                    3
+#define PNP_PROPERTY_BUSNUMBER                        4
+#define PNP_PROPERTY_POWER_DATA                       5
+#define PNP_PROPERTY_REMOVAL_POLICY                   6
+#define PNP_PROPERTY_REMOVAL_POLICY_OVERRIDE          7
+#define PNP_PROPERTY_ADDRESS                          8
+#define PNP_PROPERTY_ENUMERATOR_NAME                  9
+#define PNP_PROPERTY_REMOVAL_POLICY_HARDWARE_DEFAULT 10
+#define PNP_PROPERTY_INSTALL_STATE                   11
+#define PNP_PROPERTY_LOCATION_PATHS                  12
+#define PNP_PROPERTY_CONTAINERID                     13
+
+//
 // PLUGPLAY_CONTROL_RELATED_DEVICE_DATA.Relations
 //
 #define PNP_GET_PARENT_DEVICE           1
@@ -36,11 +54,20 @@ Author:
 #define PNP_GET_SIBLING_DEVICE          3
 
 //
-// PLUGPLAY_CONTROL_STATUS_DATA Operations
+// PLUGPLAY_CONTROL_STATUS_DATA.Operation
 //
 #define PNP_GET_DEVICE_STATUS           0
 #define PNP_SET_DEVICE_STATUS           1
 #define PNP_CLEAR_DEVICE_STATUS         2
+
+//
+// PLUGPLAY_CONTROL_DEVICE_RELATIONS_DATA.Relations
+//
+#define PNP_EJECT_RELATIONS             0
+#define PNP_REMOVAL_RELATIONS           1
+#define PNP_POWER_RELATIONS             2
+#define PNP_BUS_RELATIONS               3
+
 
 #ifdef NTOS_MODE_USER
 
@@ -117,6 +144,13 @@ typedef enum _CM_SHARE_DISPOSITION
 #define CM_RESOURCE_INTERRUPT_LATCHED         0x0001
 #define CM_RESOURCE_INTERRUPT_MESSAGE         0x0002
 #define CM_RESOURCE_INTERRUPT_POLICY_INCLUDED 0x0004
+#define CM_RESOURCE_INTERRUPT_ALLOW_RESERVED_IDT    0x0008
+#define CM_RESOURCE_INTERRUPT_SECONDARY_INTERRUPT   0x0010
+#define CM_RESOURCE_INTERRUPT_WAKE_HINT             0x0020
+
+#define CM_RESOURCE_INTERRUPT_LEVEL_LATCHED_BITS 0x0001
+
+#define CM_RESOURCE_INTERRUPT_MESSAGE_TOKEN   ((ULONG)-2)
 
 //
 // NtInitializeRegistry Flags
@@ -154,14 +188,15 @@ typedef enum _KEY_VALUE_INFORMATION_CLASS
     MaxKeyValueInfoClass
 } KEY_VALUE_INFORMATION_CLASS;
 
-typedef enum _KEY_SET_INFORMATION_CLASS {
-  KeyWriteTimeInformation,
-  KeyWow64FlagsInformation,
-  KeyControlFlagsInformation,
-  KeySetVirtualizationInformation,
-  KeySetDebugInformation,
-  KeySetHandleTagsInformation,
-  MaxKeySetInfoClass
+typedef enum _KEY_SET_INFORMATION_CLASS
+{
+    KeyWriteTimeInformation,
+    KeyWow64FlagsInformation,
+    KeyControlFlagsInformation,
+    KeySetVirtualizationInformation,
+    KeySetDebugInformation,
+    KeySetHandleTagsInformation,
+    MaxKeySetInfoClass
 } KEY_SET_INFORMATION_CLASS;
 
 #endif
@@ -418,7 +453,45 @@ typedef struct _PLUGPLAY_EVENT_BLOCK
 // Plug and Play Control Classes
 //
 
-//Class 0x09
+// PlugPlayControlEnumerateDevice (0x00)
+typedef struct _PLUGPLAY_CONTROL_ENUMERATE_DEVICE_DATA
+{
+    UNICODE_STRING DeviceInstance;
+    ULONG Flags;
+} PLUGPLAY_CONTROL_ENUMERATE_DEVICE_DATA, *PPLUGPLAY_CONTROL_ENUMERATE_DEVICE_DATA;
+
+// PlugPlayControlRegisterNewDevice (0x1)
+// PlugPlayControlDeregisterDevice (0x2)
+// PlugPlayControlInitializeDevice (0x3)
+// PlugPlayControlStartDevice (0x4)
+// PlugPlayControlUnlockDevice (0x5)
+// PlugPlayControlResetDevice (0x14)
+// PlugPlayControlHaltDevice (0x15)
+typedef struct _PLUGPLAY_CONTROL_DEVICE_CONTROL_DATA
+{
+    UNICODE_STRING DeviceInstance;
+} PLUGPLAY_CONTROL_DEVICE_CONTROL_DATA, *PPLUGPLAY_CONTROL_DEVICE_CONTROL_DATA;
+
+// PlugPlayControlQueryAndRemoveDevice (0x06)
+typedef struct _PLUGPLAY_CONTROL_QUERY_REMOVE_DATA
+{
+    UNICODE_STRING DeviceInstance;
+    ULONG Flags;
+    PNP_VETO_TYPE VetoType;
+    LPWSTR VetoName;
+    ULONG NameLength;
+} PLUGPLAY_CONTROL_QUERY_REMOVE_DATA, *PPLUGPLAY_CONTROL_QUERY_REMOVE_DATA;
+
+// PlugPlayControlUserResponse (0x07)
+typedef struct _PLUGPLAY_CONTROL_USER_RESPONSE_DATA
+{
+    ULONG Unknown1;
+    ULONG Unknown2;
+    ULONG Unknown3;
+    ULONG Unknown4;
+} PLUGPLAY_CONTROL_USER_RESPONSE_DATA, *PPLUGPLAY_CONTROL_USER_RESPONSE_DATA;
+
+// PlugPlayControlGetInterfaceDeviceList (0x09)
 typedef struct _PLUGPLAY_CONTROL_INTERFACE_DEVICE_LIST_DATA
 {
     UNICODE_STRING DeviceInstance;
@@ -428,7 +501,7 @@ typedef struct _PLUGPLAY_CONTROL_INTERFACE_DEVICE_LIST_DATA
     ULONG BufferSize;
 } PLUGPLAY_CONTROL_INTERFACE_DEVICE_LIST_DATA, *PPLUGPLAY_CONTROL_INTERFACE_DEVICE_LIST_DATA;
 
-//Class 0x0A
+// PlugPlayControlProperty (0x0A)
 typedef struct _PLUGPLAY_CONTROL_PROPERTY_DATA
 {
     UNICODE_STRING DeviceInstance;
@@ -437,7 +510,7 @@ typedef struct _PLUGPLAY_CONTROL_PROPERTY_DATA
     ULONG BufferSize;
 } PLUGPLAY_CONTROL_PROPERTY_DATA, *PPLUGPLAY_CONTROL_PROPERTY_DATA;
 
-// Class 0x0C
+// PlugPlayControlGetRelatedDevice (0x0C)
 typedef struct _PLUGPLAY_CONTROL_RELATED_DEVICE_DATA
 {
     UNICODE_STRING TargetDeviceInstance;
@@ -446,7 +519,7 @@ typedef struct _PLUGPLAY_CONTROL_RELATED_DEVICE_DATA
     ULONG RelatedDeviceInstanceLength;
 } PLUGPLAY_CONTROL_RELATED_DEVICE_DATA, *PPLUGPLAY_CONTROL_RELATED_DEVICE_DATA;
 
-// Class 0x0E
+// PlugPlayControlDeviceStatus (0x0E)
 typedef struct _PLUGPLAY_CONTOL_STATUS_DATA
 {
     UNICODE_STRING DeviceInstance;
@@ -455,34 +528,28 @@ typedef struct _PLUGPLAY_CONTOL_STATUS_DATA
     ULONG DeviceProblem;
 } PLUGPLAY_CONTROL_STATUS_DATA, *PPLUGPLAY_CONTROL_STATUS_DATA;
 
-// Class 0x0F
+// PlugPlayControlGetDeviceDepth (0x0F)
 typedef struct _PLUGPLAY_CONTROL_DEPTH_DATA
 {
     UNICODE_STRING DeviceInstance;
     ULONG Depth;
 } PLUGPLAY_CONTROL_DEPTH_DATA, *PPLUGPLAY_CONTROL_DEPTH_DATA;
 
-// Class 0x10
+// PlugPlayControlQueryDeviceRelations (0x10)
 typedef struct _PLUGPLAY_CONTROL_DEVICE_RELATIONS_DATA
 {
     UNICODE_STRING DeviceInstance;
-    ULONG Relations; // 0:EjectRelations, 1:RemovalRelations, 2:PowerRelations, 3:BusRelations
+    ULONG Relations;
     ULONG BufferSize;
     PWCHAR Buffer;
 } PLUGPLAY_CONTROL_DEVICE_RELATIONS_DATA, *PPLUGPLAY_CONTROL_DEVICE_RELATIONS_DATA;
 
-// Class 0x13
+// PlugPlayControlRetrieveDock (0x13)
 typedef struct _PLUGPLAY_CONTROL_RETRIEVE_DOCK_DATA
 {
     ULONG DeviceInstanceLength;
     PWSTR DeviceInstance;
 } PLUGPLAY_CONTROL_RETRIEVE_DOCK_DATA, *PPLUGPLAY_CONTROL_RETRIEVE_DOCK_DATA;
-
-// Class 0x14
-typedef struct _PLUGPLAY_CONTROL_RESET_DEVICE_DATA
-{
-   UNICODE_STRING DeviceInstance;
-} PLUGPLAY_CONTROL_RESET_DEVICE_DATA, *PPLUGPLAY_CONTROL_RESET_DEVICE_DATA;
 
 //
 // Plug and Play Bus Type Definition

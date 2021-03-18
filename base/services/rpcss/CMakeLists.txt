@@ -8,6 +8,7 @@ list(APPEND SOURCE
     epmp.c
     irotp.c
     rpcss_main.c
+    setup.c
     precomp.h
     ${CMAKE_CURRENT_BINARY_DIR}/epm_s.c
     ${CMAKE_CURRENT_BINARY_DIR}/irot_s.c)
@@ -16,7 +17,7 @@ include_directories(${REACTOS_BINARY_DIR}/sdk/include/reactos/wine)
 add_executable(rpcss ${SOURCE} rpcss.rc)
 
 if(USE_CLANG_CL)
-    add_target_compile_flags(rpcss "-Wno-cast-calling-convention")
+    target_compile_options(rpcss PRIVATE "-Wno-cast-calling-convention")
 endif()
 
 target_link_libraries(rpcss ${PSEH_LIB} wine)

@@ -20,6 +20,7 @@
  */
 
 #include "precomp.h"
+#include <process.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
@@ -28,6 +29,7 @@ typedef struct
     WCHAR   Drive;
     UINT    Options;
     UINT Result;
+    BOOL bFormattingNow;
 } FORMAT_DRIVE_CONTEXT, *PFORMAT_DRIVE_CONTEXT;
 
 EXTERN_C HPSXA WINAPI SHCreatePropSheetExtArrayEx(HKEY hKey, LPCWSTR pszSubKey, UINT max_iface, IDataObject *pDataObj);
@@ -39,7 +41,7 @@ GetDefaultClusterSize(LPWSTR szFs, PDWORD pClusterSize, PULARGE_INTEGER TotalNum
     DWORD ClusterSize;
 
     if (!wcsicmp(szFs, L"FAT16") ||
-        !wcsicmp(szFs, L"FAT")) //REACTOS HACK
+        !wcsicmp(szFs, L"FAT")) // REACTOS HACK
     {
         if (TotalNumberOfBytes->QuadPart <= (16 * 1024 * 1024))
             ClusterSize = 2048;
@@ -71,6 +73,27 @@ GetDefaultClusterSize(LPWSTR szFs, PDWORD pClusterSize, PULARGE_INTEGER TotalNum
         else if (TotalNumberOfBytes->QuadPart <= (256   * 1024 * 1024))
             ClusterSize = 2048;
         else if (TotalNumberOfBytes->QuadPart <= (8192LL  * 1024LL * 1024LL))
+            ClusterSize = 2048;
+        else if (TotalNumberOfBytes->QuadPart <= (16384LL * 1024LL * 1024LL))
+            ClusterSize = 8192;
+        else if (TotalNumberOfBytes->QuadPart <= (32768LL * 1024LL * 1024LL))
+            ClusterSize = 16384;
+        else
+            return FALSE;
+    }
+    else if (!wcsicmp(szFs, L"FATX"))
+    {
+        if (TotalNumberOfBytes->QuadPart <= (16 * 1024 * 1024))
+            ClusterSize = 2048;
+        else if (TotalNumberOfBytes->QuadPart <= (32 * 1024 * 1024))
+            ClusterSize = 512;
+        else if (TotalNumberOfBytes->QuadPart <= (64 * 1024 * 1024))
+            ClusterSize = 1024;
+        else if (TotalNumberOfBytes->QuadPart <= (128 * 1024 * 1024))
+            ClusterSize = 2048;
+        else if (TotalNumberOfBytes->QuadPart <= (256 * 1024 * 1024))
+            ClusterSize = 4096;
+        else if (TotalNumberOfBytes->QuadPart <= (8192LL * 1024LL * 1024LL))
             ClusterSize = 2048;
         else if (TotalNumberOfBytes->QuadPart <= (16384LL * 1024LL * 1024LL))
             ClusterSize = 8192;
@@ -185,6 +208,8 @@ static VOID
 InsertDefaultClusterSizeForFs(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
 {
     WCHAR wszBuf[100] = {0};
+    WCHAR wszDefaultSize[100] = {0};
+    PCWSTR pwszFsSizeLimit;
     WCHAR szDrive[] = L"C:\\";
     INT iSelIndex;
     ULARGE_INTEGER FreeBytesAvailableUser, TotalNumberOfBytes;
@@ -206,128 +231,89 @@ InsertDefaultClusterSizeForFs(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
         return;
 
     if (!wcsicmp(wszBuf, L"FAT16") ||
-        !wcsicmp(wszBuf, L"FAT")) //REACTOS HACK
+        !wcsicmp(wszBuf, L"FAT")) // REACTOS HACK
     {
-        if (!GetDefaultClusterSize(wszBuf, &ClusterSize, &TotalNumberOfBytes))
-        {
-            TRACE("FAT16 is not supported on hdd larger than 4G current %lu\n", TotalNumberOfBytes.QuadPart);
-            SendMessageW(hDlgCtrl, CB_DELETESTRING, iSelIndex, 0);
-            return;
-        }
-
-        if (LoadStringW(shell32_hInstance, IDS_DEFAULT_CLUSTER_SIZE, wszBuf, _countof(wszBuf)))
-        {
-            hDlgCtrl = GetDlgItem(hwndDlg, 28680);
-            SendMessageW(hDlgCtrl, CB_RESETCONTENT, 0, 0);
-            lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszBuf);
-            if (lIndex != CB_ERR)
-                SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
-            SendMessageW(hDlgCtrl, CB_SETCURSEL, 0, 0);
-        }
-
-        SendMessageW(GetDlgItem(hwndDlg, 28675), BM_SETCHECK, BST_UNCHECKED, 0);
-        EnableWindow(GetDlgItem(hwndDlg, 28675), FALSE);
+        pwszFsSizeLimit = L"4GB";
     }
     else if (!wcsicmp(wszBuf, L"FAT32"))
     {
-        if (!GetDefaultClusterSize(wszBuf, &ClusterSize, &TotalNumberOfBytes))
-        {
-            TRACE("FAT32 is not supported on hdd larger than 32G current %lu\n", TotalNumberOfBytes.QuadPart);
-            SendMessageW(hDlgCtrl, CB_DELETESTRING, iSelIndex, 0);
-            return;
-        }
-
-        if (LoadStringW(shell32_hInstance, IDS_DEFAULT_CLUSTER_SIZE, wszBuf, _countof(wszBuf)))
-        {
-            hDlgCtrl = GetDlgItem(hwndDlg, 28680);
-            SendMessageW(hDlgCtrl, CB_RESETCONTENT, 0, 0);
-            lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszBuf);
-            if (lIndex != CB_ERR)
-                SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
-            SendMessageW(hDlgCtrl, CB_SETCURSEL, 0, 0);
-        }
-
-        SendMessageW(GetDlgItem(hwndDlg, 28675), BM_SETCHECK, BST_UNCHECKED, 0);
-        EnableWindow(GetDlgItem(hwndDlg, 28675), FALSE);
+        pwszFsSizeLimit = L"32GB";
+    }
+    else if (!wcsicmp(wszBuf, L"FATX"))
+    {
+        pwszFsSizeLimit = L"1GB/32GB";
     }
     else if (!wcsicmp(wszBuf, L"NTFS"))
     {
-        if (!GetDefaultClusterSize(wszBuf, &ClusterSize, &TotalNumberOfBytes))
-        {
-            TRACE("NTFS is not supported on hdd larger than 2TB current %lu\n", TotalNumberOfBytes.QuadPart);
-            SendMessageW(hDlgCtrl, CB_DELETESTRING, iSelIndex, 0);
-            return;
-        }
-
-        hDlgCtrl = GetDlgItem(hwndDlg, 28680);
-        if (LoadStringW(shell32_hInstance, IDS_DEFAULT_CLUSTER_SIZE, wszBuf, _countof(wszBuf)))
-        {
-            SendMessageW(hDlgCtrl, CB_RESETCONTENT, 0, 0);
-            lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszBuf);
-            if (lIndex != CB_ERR)
-                SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
-            SendMessageW(hDlgCtrl, CB_SETCURSEL, 0, 0);
-        }
-        ClusterSize = 512;
-        for (lIndex = 0; lIndex < 4; lIndex++)
-        {
-            TotalNumberOfBytes.QuadPart = ClusterSize;
-            if (StrFormatByteSizeW(TotalNumberOfBytes.QuadPart, wszBuf, _countof(wszBuf)))
-            {
-                lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszBuf);
-                if (lIndex != CB_ERR)
-                    SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
-            }
-            ClusterSize *= 2;
-        }
-
-        EnableWindow(GetDlgItem(hwndDlg, 28675), TRUE);
+        pwszFsSizeLimit = L"256TB";
     }
     else if (!wcsicmp(wszBuf, L"EXT2"))
     {
-        if (!GetDefaultClusterSize(wszBuf, &ClusterSize, &TotalNumberOfBytes))
-        {
-            TRACE("EXT2 is not supported on hdd larger than 32T current %lu\n", TotalNumberOfBytes.QuadPart);
-            SendMessageW(hDlgCtrl, CB_DELETESTRING, iSelIndex, 0);
-            return;
-        }
-
-        if (LoadStringW(shell32_hInstance, IDS_DEFAULT_CLUSTER_SIZE, wszBuf, _countof(wszBuf)))
-        {
-            hDlgCtrl = GetDlgItem(hwndDlg, 28680);
-            SendMessageW(hDlgCtrl, CB_RESETCONTENT, 0, 0);
-            lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszBuf);
-            if (lIndex != CB_ERR)
-                SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
-            SendMessageW(hDlgCtrl, CB_SETCURSEL, 0, 0);
-        }
-
-        EnableWindow(GetDlgItem(hwndDlg, 28675), TRUE);
-    }
-    else if (!wcsicmp(wszBuf, L"BtrFS"))
-    {
-        if (!GetDefaultClusterSize(wszBuf, &ClusterSize, &TotalNumberOfBytes))
-        {
-            TRACE("BtrFS is not supported on hdd larger than 16E current %lu\n", TotalNumberOfBytes.QuadPart);
-            SendMessageW(hDlgCtrl, CB_DELETESTRING, iSelIndex, 0);
-            return;
-        }
-
-        if (LoadStringW(shell32_hInstance, IDS_DEFAULT_CLUSTER_SIZE, wszBuf, _countof(wszBuf)))
-        {
-            hDlgCtrl = GetDlgItem(hwndDlg, 28680);
-            SendMessageW(hDlgCtrl, CB_RESETCONTENT, 0, 0);
-            lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszBuf);
-            if (lIndex != CB_ERR)
-                SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
-            SendMessageW(hDlgCtrl, CB_SETCURSEL, 0, 0);
-        }
-
-        EnableWindow(GetDlgItem(hwndDlg, 28675), TRUE);
+        pwszFsSizeLimit = L"32TB";
     }
     else
     {
-        FIXME("unknown fs\n");
+        pwszFsSizeLimit = L"16EB";
+    }
+
+    if (!wcsicmp(wszBuf, L"FAT16") ||
+        !wcsicmp(wszBuf, L"FAT") || // REACTOS HACK
+        !wcsicmp(wszBuf, L"FAT32") ||
+        !wcsicmp(wszBuf, L"FATX") ||
+        !wcsicmp(wszBuf, L"NTFS") ||
+        !wcsicmp(wszBuf, L"EXT2") ||
+        !wcsicmp(wszBuf, L"BtrFS"))
+    {
+        if (!GetDefaultClusterSize(wszBuf, &ClusterSize, &TotalNumberOfBytes))
+        {
+            TRACE("%S is not supported on drive larger than %S, current size: %lu\n", wszBuf, pwszFsSizeLimit, TotalNumberOfBytes.QuadPart);
+            SendMessageW(hDlgCtrl, CB_DELETESTRING, iSelIndex, 0);
+            return;
+        }
+
+        if (LoadStringW(shell32_hInstance, IDS_DEFAULT_CLUSTER_SIZE, wszDefaultSize, _countof(wszDefaultSize)))
+        {
+            hDlgCtrl = GetDlgItem(hwndDlg, 28680); // Get the window handle of "allocation unit size" combobox
+            SendMessageW(hDlgCtrl, CB_RESETCONTENT, 0, 0);
+            lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszDefaultSize);
+            if (lIndex != CB_ERR)
+                SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
+            SendMessageW(hDlgCtrl, CB_SETCURSEL, 0, 0);
+        }
+
+        if (!wcsicmp(wszBuf, L"NTFS"))
+        {
+            ClusterSize = 512;
+            for (lIndex = 0; lIndex < 4; lIndex++)
+            {
+                TotalNumberOfBytes.QuadPart = ClusterSize;
+                if (StrFormatByteSizeW(TotalNumberOfBytes.QuadPart, wszDefaultSize, _countof(wszDefaultSize)))
+                {
+                    lIndex = SendMessageW(hDlgCtrl, CB_ADDSTRING, 0, (LPARAM)wszDefaultSize);
+                    if (lIndex != CB_ERR)
+                        SendMessageW(hDlgCtrl, CB_SETITEMDATA, lIndex, (LPARAM)ClusterSize);
+                }
+                ClusterSize *= 2;
+            }
+        }
+
+        SendMessageW(GetDlgItem(hwndDlg, 28675), BM_SETCHECK, BST_UNCHECKED, 0);
+        if (!wcsicmp(wszBuf, L"EXT2") ||
+            !wcsicmp(wszBuf, L"BtrFS") ||
+            !wcsicmp(wszBuf, L"NTFS"))
+        {
+            /* Enable the "Enable Compression" button */
+            EnableWindow(GetDlgItem(hwndDlg, 28675), TRUE);
+        }
+        else
+        {
+            /* Disable the "Enable Compression" button */
+            EnableWindow(GetDlgItem(hwndDlg, 28675), FALSE);
+        }
+    }
+    else
+    {
+        FIXME("Unknown filesystem: %ls\n", wszBuf);
         SendDlgItemMessageW(hwndDlg, 28680, CB_RESETCONTENT, iSelIndex, 0);
         return;
     }
@@ -411,8 +397,6 @@ InitializeFormatDriveDlg(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
     SendMessageW(hwndFileSystems, CB_SETCURSEL, dwDefault, 0);
     /* setup cluster combo */
     InsertDefaultClusterSizeForFs(hwndDlg, pContext);
-    /* hide progress control */
-    ShowWindow(GetDlgItem(hwndDlg, 28678), SW_HIDE);
 }
 
 static HWND FormatDrvDialog = NULL;
@@ -435,6 +419,8 @@ FormatExCB(
         case DONE:
             pSuccess = (PBOOLEAN)ActionInfo;
             bSuccess = (*pSuccess);
+            ShellMessageBoxW(shell32_hInstance, FormatDrvDialog, MAKEINTRESOURCEW(IDS_FORMAT_COMPLETE), MAKEINTRESOURCEW(IDS_FORMAT_TITLE), MB_OK | MB_ICONINFORMATION);
+            SendDlgItemMessageW(FormatDrvDialog, 28678, PBM_SETPOS, 0, 0);
             break;
 
         case VOLUMEINUSE:
@@ -442,7 +428,7 @@ FormatExCB(
         case FSNOTSUPPORTED:
         case CLUSTERSIZETOOSMALL:
             bSuccess = FALSE;
-            FIXME("\n");
+            FIXME("Unsupported command in FormatExCB\n");
             break;
 
         default:
@@ -474,13 +460,13 @@ FormatDrive(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
     iSelIndex = SendMessageW(hDlgCtrl, CB_GETCURSEL, 0, 0);
     if (iSelIndex == CB_ERR)
     {
-        FIXME("\n");
+        ERR("Unable to get file system selection\n");
         return;
     }
     Length = SendMessageW(hDlgCtrl, CB_GETLBTEXTLEN, iSelIndex, 0);
     if ((int)Length == CB_ERR || Length + 1 > _countof(szFileSys))
     {
-        FIXME("\n");
+        ERR("Unable to get file system selection\n");
         return;
     }
 
@@ -493,7 +479,7 @@ FormatDrive(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
     Length = SendMessageW(hDlgCtrl, WM_GETTEXTLENGTH, 0, 0);
     if (Length + 1 > _countof(szLabel))
     {
-        FIXME("\n");
+        ERR("Unable to get volume label\n");
         return;
     }
     SendMessageW(hDlgCtrl, WM_GETTEXT, _countof(szLabel), (LPARAM)szLabel);
@@ -521,7 +507,6 @@ FormatDrive(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
     }
 
     hDlgCtrl = GetDlgItem(hwndDlg, 28680);
-    ShowWindow(hDlgCtrl, SW_SHOW);
     SendMessageW(hDlgCtrl, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
     bSuccess = FALSE;
 
@@ -563,7 +548,6 @@ FormatDrive(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
              ClusterSize,
              FormatExCB);
 
-    ShowWindow(hDlgCtrl, SW_HIDE);
     FormatDrvDialog = NULL;
     if (!bSuccess)
     {
@@ -577,6 +561,46 @@ FormatDrive(HWND hwndDlg, PFORMAT_DRIVE_CONTEXT pContext)
     {
         pContext->Result = FALSE;
     }
+}
+
+struct FORMAT_DRIVE_PARAMS
+{
+    HWND hwndDlg;
+    PFORMAT_DRIVE_CONTEXT pContext;
+};
+
+static unsigned __stdcall DoFormatDrive(void *args)
+{
+    FORMAT_DRIVE_PARAMS *pParams = reinterpret_cast<FORMAT_DRIVE_PARAMS *>(args);
+    HWND hwndDlg = pParams->hwndDlg;
+    PFORMAT_DRIVE_CONTEXT pContext = pParams->pContext;
+
+	/* Disable controls during format */
+    HMENU hSysMenu = GetSystemMenu(hwndDlg, FALSE);
+    EnableMenuItem(hSysMenu, SC_CLOSE, MF_BYCOMMAND | MF_GRAYED);
+    EnableWindow(GetDlgItem(hwndDlg, IDOK), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, IDCANCEL), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, 28673), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, 28677), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, 28680), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, 28679), FALSE);
+    EnableWindow(GetDlgItem(hwndDlg, 28674), FALSE);
+
+    FormatDrive(hwndDlg, pContext);
+
+	/* Re-enable controls after format */
+    EnableWindow(GetDlgItem(hwndDlg, IDOK), TRUE);
+    EnableWindow(GetDlgItem(hwndDlg, IDCANCEL), TRUE);
+    EnableWindow(GetDlgItem(hwndDlg, 28673), TRUE);
+    EnableWindow(GetDlgItem(hwndDlg, 28677), TRUE);
+    EnableWindow(GetDlgItem(hwndDlg, 28680), TRUE);
+    EnableWindow(GetDlgItem(hwndDlg, 28679), TRUE);
+    EnableWindow(GetDlgItem(hwndDlg, 28674), TRUE);
+    EnableMenuItem(hSysMenu, SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
+    pContext->bFormattingNow = FALSE;
+
+    delete pParams;
+    return 0;
 }
 
 static INT_PTR CALLBACK
@@ -595,16 +619,39 @@ FormatDriveDlg(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
             {
                 case IDOK:
                     pContext = (PFORMAT_DRIVE_CONTEXT)GetWindowLongPtr(hwndDlg, DWLP_USER);
-                    FormatDrive(hwndDlg, pContext);
+                    if (pContext->bFormattingNow)
+                        break;
+
+                    if (ShellMessageBoxW(shell32_hInstance, hwndDlg,
+                                         MAKEINTRESOURCEW(IDS_FORMAT_WARNING),
+                                         MAKEINTRESOURCEW(IDS_FORMAT_TITLE),
+                                         MB_OKCANCEL | MB_ICONWARNING) == IDOK)
+                    {
+                        pContext->bFormattingNow = TRUE;
+
+                        FORMAT_DRIVE_PARAMS *pParams = new FORMAT_DRIVE_PARAMS;
+                        pParams->hwndDlg = hwndDlg;
+                        pParams->pContext = pContext;
+
+                        unsigned tid;
+                        HANDLE hThread = (HANDLE)_beginthreadex(NULL, 0, DoFormatDrive, pParams, 0, &tid);
+                        CloseHandle(hThread);
+                    }
                     break;
                 case IDCANCEL:
                     pContext = (PFORMAT_DRIVE_CONTEXT)GetWindowLongPtr(hwndDlg, DWLP_USER);
+                    if (pContext->bFormattingNow)
+                        break;
+
                     EndDialog(hwndDlg, pContext->Result);
                     break;
                 case 28677: // filesystem combo
                     if (HIWORD(wParam) == CBN_SELENDOK)
                     {
                         pContext = (PFORMAT_DRIVE_CONTEXT)GetWindowLongPtr(hwndDlg, DWLP_USER);
+                        if (pContext->bFormattingNow)
+                            break;
+
                         InsertDefaultClusterSizeForFs(hwndDlg, pContext);
                     }
                     break;
@@ -628,10 +675,10 @@ SHFormatDrive(HWND hwnd, UINT drive, UINT fmtID, UINT options)
 
     Context.Drive = drive;
     Context.Options = options;
+    Context.Result = FALSE;
+    Context.bFormattingNow = FALSE;
 
     result = DialogBoxParamW(shell32_hInstance, MAKEINTRESOURCEW(IDD_FORMAT_DRIVE), hwnd, FormatDriveDlg, (LPARAM)&Context);
 
     return result;
 }
-
-

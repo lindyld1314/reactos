@@ -48,7 +48,6 @@ FsdGetFsVolumeInformation(
         RtlCopyMemory(FsVolumeInfo->VolumeLabel,
                       DeviceObject->Vpb->VolumeLabel,
                       *BufferLength);
-        *BufferLength = 0;
     }
     else
     {
@@ -313,6 +312,11 @@ FsdSetFsLabelInformation(
     }
 
     pRootFcb = vfatOpenRootFCB(DeviceExt);
+    Status = vfatFCBInitializeCacheFromVolume(DeviceExt, pRootFcb);
+    if (!NT_SUCCESS(Status))
+    {
+        return Status;
+    }
 
     /* Search existing volume entry on disk */
     FileOffset.QuadPart = 0;
@@ -451,6 +455,8 @@ VfatQueryVolumeInformation(
 
     DPRINT("FsInformationClass %d\n", FsInformationClass);
     DPRINT("SystemBuffer %p\n", SystemBuffer);
+
+    RtlZeroMemory(SystemBuffer, BufferLength);
 
     switch (FsInformationClass)
     {

@@ -11,6 +11,7 @@ list(APPEND SOURCE
     controls/button.c
     controls/combo.c
     controls/edit.c
+    controls/ghost.c
     controls/icontitle.c
     controls/listbox.c
     controls/regcontrol.c
@@ -71,7 +72,7 @@ endif()
 
 add_asm_files(user32_asm ${ASM_SOURCE})
 
-add_library(user32 SHARED
+add_library(user32 MODULE
     ${SOURCE}
     ${user32_asm}
     user32.rc
@@ -81,9 +82,8 @@ set_module_type(user32 win32dll ENTRYPOINT DllMain 12 UNICODE)
 target_link_libraries(user32 user32_wsprintf wine win32ksys ${PSEH_LIB})
 add_dependencies(user32 asm)
 
-if(MSVC)
-    # for __ftol2_sse, float to int cast helper
-    target_link_libraries(user32 msvcrtex)
+if(MSVC AND (ARCH STREQUAL "i386"))
+    target_sources(user32 PRIVATE $<TARGET_OBJECTS:ftol2_sse>)
 endif()
 
 add_delay_importlibs(user32 imm32 usp10)

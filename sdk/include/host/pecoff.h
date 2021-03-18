@@ -42,6 +42,7 @@
 #define IMAGE_NUMBEROF_DIRECTORY_ENTRIES 16
 
 #define IMAGE_REL_I386_ABSOLUTE 0x0001
+#define IMAGE_REL_I386_REL16    0x0002
 #define IMAGE_REL_I386_DIR32    0x0006
 
 #pragma pack(push,2)
@@ -202,7 +203,7 @@ typedef struct _IMAGE_SECTION_HEADER {
 typedef struct _IMAGE_BASE_RELOCATION {
 	DWORD VirtualAddress;
 	DWORD SizeOfBlock;
-    WORD  TypeOffset[1];
+	// Followed by: WORD TypeOffset[ANYSIZE_ARRAY];
 } IMAGE_BASE_RELOCATION,*PIMAGE_BASE_RELOCATION;
 #pragma pack(pop)
 

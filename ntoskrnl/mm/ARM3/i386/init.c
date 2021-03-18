@@ -39,9 +39,9 @@ MMPTE MmDecommittedPte = {{MM_DECOMMIT << MM_PTE_SOFTWARE_PROTECTION_BITS}};
 
 /* PRIVATE FUNCTIONS **********************************************************/
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 MiInitializeSessionSpaceLayout(VOID)
 {
     //
@@ -120,9 +120,9 @@ MiInitializeSessionSpaceLayout(VOID)
                                          MM_ALLOCATION_GRANULARITY);
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 MiComputeNonPagedPoolVa(IN ULONG FreePages)
 {
     IN PFN_NUMBER PoolPages;
@@ -236,9 +236,9 @@ MiComputeNonPagedPoolVa(IN ULONG FreePages)
     }
 }
 
+CODE_SEG("INIT")
 NTSTATUS
 NTAPI
-INIT_FUNCTION
 MiInitMachineDependent(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
 {
     PFN_NUMBER PageFrameIndex;
@@ -418,6 +418,8 @@ MiInitMachineDependent(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
         StartPde++;
     }
 
+    MmSubsectionBase = (ULONG_PTR)MmNonPagedPoolStart;
+
     //
     // Now remember where the expansion starts
     //
@@ -522,14 +524,14 @@ MiInitMachineDependent(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     //
     // Reserve system PTEs for zeroing PTEs and clear them
     //
-    MiFirstReservedZeroingPte = MiReserveSystemPtes(MI_ZERO_PTES,
+    MiFirstReservedZeroingPte = MiReserveSystemPtes(MI_ZERO_PTES + 1,
                                                     SystemPteSpace);
-    RtlZeroMemory(MiFirstReservedZeroingPte, MI_ZERO_PTES * sizeof(MMPTE));
+    RtlZeroMemory(MiFirstReservedZeroingPte, (MI_ZERO_PTES + 1) * sizeof(MMPTE));
 
     //
     // Set the counter to maximum to boot with
     //
-    MiFirstReservedZeroingPte->u.Hard.PageFrameNumber = MI_ZERO_PTES - 1;
+    MiFirstReservedZeroingPte->u.Hard.PageFrameNumber = MI_ZERO_PTES;
 
     /* Lock PFN database */
     OldIrql = MiAcquirePfnLock();

@@ -7,7 +7,7 @@ set(OARCH "armv7-a" CACHE STRING
 "Generate instructions for this CPU type. Specify one of:
  armv5te armv7-a")
 
-set (OPTIMIZE "1" CACHE STRING
+set(OPTIMIZE "1" CACHE STRING
 "What level of optimization to use.
  0 = off
  1 = Default option, optimize for size (-Os) with some additional options
@@ -34,12 +34,14 @@ If you don't use GDB, don't enable this.")
 set(_WINKD_ TRUE CACHE BOOL
 "Whether to compile with the KD protocol.")
 
-set(_ELF_ FALSE CACHE BOOL
-"Whether to compile support for ELF files.
-Do not enable unless you know what you're doing.")
-
 set(BUILD_MP TRUE CACHE BOOL
 "Whether to compile the multi processor versions for ntoskrnl and hal.")
 
 set(NEWSPRINTF FALSE CACHE BOOL
 "Whether to compile the new sprintf.")
+
+if(MSVC)
+    # RTC are incompatible with compiler optimizations.
+    cmake_dependent_option(RUNTIME_CHECKS "Whether to enable runtime checks on MSVC" ON
+                           "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+endif()

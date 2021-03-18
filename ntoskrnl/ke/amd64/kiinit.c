@@ -40,6 +40,7 @@ void KiSystemCallEntry32();
 
 /* FUNCTIONS *****************************************************************/
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 KiInitMachineDependent(VOID)
@@ -72,14 +73,14 @@ KiInitMachineDependent(VOID)
         DPRINT("PAT support detected but not yet taken advantage of!\n");
     }
 
-        /* Allocate the IOPM save area. */
+//        /* Allocate the IOPM save area */
 //        Ki386IopmSaveArea = ExAllocatePoolWithTag(PagedPool,
-//                                                  PAGE_SIZE * 2,
-//                                                  TAG('K', 'e', ' ', ' '));
+//                                                  IOPM_SIZE,
+//                                                  '  eK');
 //        if (!Ki386IopmSaveArea)
 //        {
 //            /* Bugcheck. We need this for V86/VDM support. */
-//            KeBugCheckEx(NO_PAGES_AVAILABLE, 2, PAGE_SIZE * 2, 0, 0);
+//            KeBugCheckEx(NO_PAGES_AVAILABLE, 2, IOPM_SIZE, 0, 0);
 //        }
 
 }
@@ -159,6 +160,7 @@ KiInitializePcr(IN PKIPCR Pcr,
     KeSetCurrentIrql(PASSIVE_LEVEL);
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 KiInitializeCpu(PKIPCR Pcr)
@@ -267,9 +269,9 @@ KiInitializeTss(IN PKTSS64 Tss,
     __ltr(KGDT64_SYS_TSS);
 }
 
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 KiInitializeKernelMachineDependent(
     IN PKPRCB Prcb,
     IN PLOADER_PARAMETER_BLOCK LoaderBlock)
@@ -364,6 +366,8 @@ KiInitModuleList(IN PLOADER_PARAMETER_BLOCK LoaderBlock)
     }
 }
 
+CODE_SEG("INIT")
+DECLSPEC_NORETURN
 VOID
 NTAPI
 KiSystemStartup(IN PLOADER_PARAMETER_BLOCK LoaderBlock)

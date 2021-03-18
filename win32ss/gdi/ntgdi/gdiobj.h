@@ -73,7 +73,6 @@ enum _GDIOBJLAGS
     GDIOBJFLAG_IGNORELOCK = 0x02
 };
 
-INIT_FUNCTION
 NTSTATUS
 NTAPI
 InitGdiHandleTable(VOID);
@@ -111,7 +110,7 @@ NTAPI
 GreGetObject(
     IN HGDIOBJ hobj,
     IN INT cbCount,
-    IN PVOID pvBuffer);
+    OUT PVOID pvBuffer);
 
 POBJ
 NTAPI

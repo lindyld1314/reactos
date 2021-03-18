@@ -163,9 +163,9 @@ ExpCheckForApcsDisabled(IN KIRQL Irql,
  * @remarks This routine should only be called once, during system startup.
  *
  *--*/
+CODE_SEG("INIT")
 VOID
 NTAPI
-INIT_FUNCTION
 ExpResourceInitialization(VOID)
 {
     /* Setup the timeout */

@@ -62,6 +62,7 @@ add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/hybridcd.ini DESTINATION root NAME_
 # Unattend
 add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/bootcdregtest/unattend.inf DESTINATION reactos NO_CAB FOR regtest)
 add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/bootcd/unattend.inf DESTINATION reactos NO_CAB FOR bootcd)
+add_cd_file(FILE ${CMAKE_CURRENT_SOURCE_DIR}/livecd/unattend.inf DESTINATION reactos NO_CAB FOR livecd)
 
 # LiveCD shortcuts
 macro(add_livecd_shortcut name app dest)
@@ -82,6 +83,7 @@ add_livecd_shortcut("Device Manager" devmgmt.exe "Profiles/All Users/Start Menu/
 add_livecd_shortcut("Event Viewer" eventvwr.exe "Profiles/All Users/Start Menu/Programs/Administrative Tools")
 add_livecd_shortcut("Service Manager" servman.exe "Profiles/All Users/Start Menu/Programs/Administrative Tools")
 add_livecd_shortcut("System Configuration" msconfig.exe "Profiles/All Users/Start Menu/Programs/Administrative Tools")
+add_livecd_shortcut("Accessibility Utility Manager" utilman.exe "Profiles/All Users/Start Menu/Programs/Accessories/Accessibility")
 add_livecd_shortcut("Magnify" magnify.exe "Profiles/All Users/Start Menu/Programs/Accessories/Accessibility")
 add_livecd_shortcut("On-Screen Keyboard" osk.exe "Profiles/All Users/Start Menu/Programs/Accessories/Accessibility")
 add_livecd_shortcut("Remote Desktop Connection" mstsc.exe "Profiles/All Users/Start Menu/Programs/Accessories/Communications")

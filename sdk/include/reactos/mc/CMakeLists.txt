@@ -3,7 +3,9 @@ list(APPEND ANSI_SOURCE
      bugcodes.mc)
 
 list(APPEND UNICODE_SOURCE
+     arp_msg.mc
      errcodes.mc
+     net_msg.mc
      neteventmsg.mc
      netmsgmsg.mc
      ntiologc.mc

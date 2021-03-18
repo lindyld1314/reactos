@@ -54,6 +54,7 @@ list(APPEND SOURCE
     platform.c
     ripemd160.c
     rsa.c
+    rsa_internal.c
     sha1.c
     sha256.c
     sha512.c
@@ -78,7 +79,7 @@ list(APPEND SOURCE
     #xtea.c
     )
 
-add_library(mbedtls SHARED
+add_library(mbedtls MODULE
     ${SOURCE}
     mbedtls.rc
     ${CMAKE_CURRENT_BINARY_DIR}/mbedtls.def)
@@ -93,7 +94,7 @@ add_definitions(-DMINGW_HAS_SECURE_API -DCRTDLL)
 add_cd_file(TARGET mbedtls DESTINATION reactos/system32 FOR all)
 
 if(NOT MSVC)
-    add_target_compile_flags(mbedtls "-Wno-pointer-sign -Wno-unused-function")
+    target_compile_options(mbedtls PRIVATE -Wno-pointer-sign -Wno-unused-function)
 elseif(USE_CLANG_CL)
-    add_target_compile_flags(mbedtls "-Wno-tautological-constant-compare")
+    target_compile_options(mbedtls PRIVATE -Wno-tautological-constant-compare)
 endif()
