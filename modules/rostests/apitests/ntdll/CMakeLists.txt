@@ -2,12 +2,16 @@
 add_subdirectory(load_notifications)
 
 include_directories($<TARGET_FILE_DIR:load_notifications>)
+include_directories(${REACTOS_SOURCE_DIR}/ntoskrnl/include)
 spec2def(ntdll_apitest.exe ntdll_apitest.spec)
 
 list(APPEND SOURCE
     LdrEnumResources.c
     load_notifications.c
+    locale.c
     NtAcceptConnectPort.c
+    NtAdjustGroupsToken.c
+    NtAdjustPrivilegesToken.c
     NtAllocateVirtualMemory.c
     NtApphelpCacheControl.c
     NtCompareTokens.c
@@ -17,7 +21,10 @@ list(APPEND SOURCE
     NtCreateThread.c
     NtDeleteKey.c
     NtDuplicateObject.c
+    NtDuplicateToken.c
+    NtFilterToken.c
     NtFreeVirtualMemory.c
+    NtImpersonateAnonymousToken.c
     NtLoadUnloadKey.c
     NtMapViewOfSection.c
     NtMutant.c
@@ -28,6 +35,7 @@ list(APPEND SOURCE
     NtQueryInformationFile.c
     NtQueryInformationProcess.c
     NtQueryInformationThread.c
+    NtQueryInformationToken.c
     NtQueryKey.c
     NtQuerySystemEnvironmentValue.c
     NtQuerySystemInformation.c
@@ -38,10 +46,12 @@ list(APPEND SOURCE
     NtSetInformationFile.c
     NtSetInformationProcess.c
     NtSetInformationThread.c
+    NtSetInformationToken.c
     NtSetValueKey.c
     NtSetVolumeInformationFile.c
     NtUnloadDriver.c
     NtWriteFile.c
+    probelib.c
     RtlAllocateHeap.c
     RtlBitmap.c
     RtlComputePrivatizedDllName_U.c
@@ -59,6 +69,7 @@ list(APPEND SOURCE
     RtlGetFullPathName_U.c
     RtlGetFullPathName_Ustr.c
     RtlGetFullPathName_UstrEx.c
+    RtlGetLengthWithoutLastFullDosOrNtPathElement.c
     RtlGetLengthWithoutTrailingPathSeperators.c
     RtlGetLongestNtPathLength.c
     RtlGetNtProductType.c
@@ -70,18 +81,27 @@ list(APPEND SOURCE
     RtlMemoryStream.c
     RtlMultipleAllocateHeap.c
     RtlNtPathNameToDosPathName.c
+    RtlpApplyLengthFunction.c
     RtlpEnsureBufferSize.c
     RtlQueryTimeZoneInfo.c
     RtlReAllocateHeap.c
+    RtlRemovePrivileges.c
     RtlUnicodeStringToAnsiString.c
+    RtlUnicodeStringToCountedOemString.c
+    RtlUnicodeToOemN.c
     RtlUpcaseUnicodeStringToCountedOemString.c
     RtlValidateUnicodeString.c
+    RtlxUnicodeStringToAnsiSize.c
+    RtlxUnicodeStringToOemSize.c
     StackOverflow.c
     SystemInfo.c
+    UserModeException.c
     Timer.c)
 
 if(ARCH STREQUAL "i386")
     add_asm_files(ntdll_apitest_asm i386/NtContinue.S)
+elseif(ARCH STREQUAL "amd64")
+    add_asm_files(ntdll_apitest_asm amd64/NtContinue.S)
 endif()
 
 list(APPEND PCH_SKIP_SOURCE
@@ -95,6 +115,11 @@ add_executable(ntdll_apitest
     ${PCH_SKIP_SOURCE}
     testdata.rc
     ${CMAKE_CURRENT_BINARY_DIR}/ntdll_apitest.def)
+
+set_target_properties(ntdll_apitest
+    PROPERTIES
+    ENABLE_EXPORTS TRUE
+    DEFINE_SYMBOL "")
 
 target_link_libraries(ntdll_apitest wine uuid ${PSEH_LIB})
 set_module_type(ntdll_apitest win32cui)

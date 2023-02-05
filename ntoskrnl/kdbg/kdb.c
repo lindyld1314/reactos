@@ -18,6 +18,13 @@
 /* DEFINES *******************************************************************/
 
 #define KDB_STACK_SIZE                   (4096*3)
+#ifdef _M_AMD64
+#define KDB_STACK_ALIGN                 16
+#define KDB_STACK_RESERVE               (5 * sizeof(PVOID)) /* Home space + return address */
+#else
+#define KDB_STACK_ALIGN                 4
+#define KDB_STACK_RESERVE               sizeof(ULONG) /* Return address */
+#endif
 #define KDB_MAXIMUM_BREAKPOINT_COUNT     256
 #define KDB_MAXIMUM_HW_BREAKPOINT_COUNT  4
 #define KDB_MAXIMUM_SW_BREAKPOINT_COUNT  256
@@ -28,7 +35,7 @@
 /* GLOBALS *******************************************************************/
 
 static LONG KdbEntryCount = 0;
-static CHAR KdbStack[KDB_STACK_SIZE];
+static DECLSPEC_ALIGN(KDB_STACK_ALIGN) CHAR KdbStack[KDB_STACK_SIZE];
 
 static ULONG KdbBreakPointCount = 0;  /* Number of used breakpoints in the array */
 static KDB_BREAKPOINT KdbBreakPoints[KDB_MAXIMUM_BREAKPOINT_COUNT] = {{0}};  /* Breakpoint array */
@@ -333,7 +340,7 @@ KdbpStepIntoInstruction(
     }
 
     /* Get the interrupt descriptor */
-    if (!NT_SUCCESS(KdbpSafeReadMemory(IntDesc, (PVOID)(ULONG_PTR)(Idtr.Base + (IntVect * 8)), sizeof (IntDesc))))
+    if (!NT_SUCCESS(KdbpSafeReadMemory(IntDesc, (PVOID)((ULONG_PTR)Idtr.Base + (IntVect * 8)), sizeof(IntDesc))))
     {
         /*KdbpPrint("Couldn't access memory at 0x%p\n", (ULONG_PTR)Idtr.Base + (IntVect * 8));*/
         return FALSE;
@@ -479,7 +486,7 @@ KdbpInsertBreakPoint(
     IN  BOOLEAN Global,
     OUT PLONG BreakPointNr  OPTIONAL)
 {
-    LONG i;
+    LONG_PTR i;
     PVOID Condition;
     PCHAR ConditionExpressionDup;
     LONG ErrOffset;
@@ -650,14 +657,14 @@ KdbpIsBreakPointOurs(
 
     if (ExceptionCode == STATUS_BREAKPOINT) /* Software interrupt */
     {
-        ULONG_PTR BpEip = (ULONG_PTR)Context->Eip - 1; /* Get EIP of INT3 instruction */
+        ULONG_PTR BpPc = KeGetContextPc(Context) - 1; /* Get EIP of INT3 instruction */
         for (i = 0; i < KdbSwBreakPointCount; i++)
         {
             ASSERT((KdbSwBreakPoints[i]->Type == KdbBreakPointSoftware ||
                    KdbSwBreakPoints[i]->Type == KdbBreakPointTemporary));
             ASSERT(KdbSwBreakPoints[i]->Enabled);
 
-            if (KdbSwBreakPoints[i]->Address == BpEip)
+            if (KdbSwBreakPoints[i]->Address == BpPc)
             {
                 return KdbSwBreakPoints[i] - KdbBreakPoints;
             }
@@ -673,7 +680,7 @@ KdbpIsBreakPointOurs(
                    KdbHwBreakPoints[i]->Enabled);
             DebugReg = KdbHwBreakPoints[i]->Data.Hw.DebugReg;
 
-            if ((Context->Dr6 & (1 << DebugReg)) != 0)
+            if ((Context->Dr6 & ((ULONG_PTR)1 << DebugReg)) != 0)
             {
                 return KdbHwBreakPoints[i] - KdbBreakPoints;
             }
@@ -1174,7 +1181,7 @@ KdbpInternalEnter(VOID)
 
     // KdbpPrint("Switching to KDB stack 0x%08x-0x%08x (Current Stack is 0x%08x)\n", Thread->Tcb.StackLimit, Thread->Tcb.StackBase, Esp);
 
-    KdbpStackSwitchAndCall(KdbStack + KDB_STACK_SIZE - sizeof(ULONG), KdbpCallMainLoop);
+    KdbpStackSwitchAndCall(KdbStack + KDB_STACK_SIZE - KDB_STACK_RESERVE, KdbpCallMainLoop);
 
     Thread->Tcb.InitialStack = SavedInitialStack;
     Thread->Tcb.StackBase = SavedStackBase;
@@ -1321,7 +1328,7 @@ KdbEnterDebuggerException(
                KiDispatchException accounts for that. Whatever we do here with
                the TrapFrame does not matter anyway, since KiDispatchException
                will overwrite it with the values from the Context! */
-            Context->Eip--;
+            KeSetContextPc(Context, KeGetContextPc(Context) - 1);
         }
 
         if ((BreakPoint->Type == KdbBreakPointHardware) &&
@@ -1345,8 +1352,8 @@ KdbEnterDebuggerException(
 
             if (--KdbNumSingleSteps > 0)
             {
-                if ((KdbSingleStepOver && !KdbpStepOverInstruction(Context->Eip)) ||
-                    (!KdbSingleStepOver && !KdbpStepIntoInstruction(Context->Eip)))
+                if ((KdbSingleStepOver && !KdbpStepOverInstruction(KeGetContextPc(Context))) ||
+                    (!KdbSingleStepOver && !KdbpStepIntoInstruction(KeGetContextPc(Context))))
                 {
                     Context->EFlags |= EFLAGS_TF;
                 }
@@ -1394,8 +1401,8 @@ KdbEnterDebuggerException(
 
         if (BreakPoint->Type == KdbBreakPointSoftware)
         {
-            KdbpPrint("\nEntered debugger on breakpoint #%d: EXEC 0x%04x:0x%08x\n",
-                      KdbLastBreakPointNr, Context->SegCs & 0xffff, Context->Eip);
+            KdbpPrint("\nEntered debugger on breakpoint #%d: EXEC 0x%04x:0x%p\n",
+                      KdbLastBreakPointNr, Context->SegCs & 0xffff, KeGetContextPc(Context));
         }
         else if (BreakPoint->Type == KdbBreakPointHardware)
         {
@@ -1448,8 +1455,8 @@ KdbEnterDebuggerException(
             /*ASSERT((Context->Eflags & EFLAGS_TF) != 0);*/
             if (--KdbNumSingleSteps > 0)
             {
-                if ((KdbSingleStepOver && KdbpStepOverInstruction(Context->Eip)) ||
-                    (!KdbSingleStepOver && KdbpStepIntoInstruction(Context->Eip)))
+                if ((KdbSingleStepOver && KdbpStepOverInstruction(KeGetContextPc(Context))) ||
+                    (!KdbSingleStepOver && KdbpStepIntoInstruction(KeGetContextPc(Context))))
                 {
                     Context->EFlags &= ~EFLAGS_TF;
                 }
@@ -1488,8 +1495,8 @@ KdbEnterDebuggerException(
             return kdHandleException;
         }
 
-        KdbpPrint("\nEntered debugger on embedded INT3 at 0x%04x:0x%08x.\n",
-                  Context->SegCs & 0xffff, Context->Eip - 1);
+        KdbpPrint("\nEntered debugger on embedded INT3 at 0x%04x:0x%p.\n",
+                  Context->SegCs & 0xffff, KeGetContextPc(Context));
     }
     else
     {
@@ -1531,10 +1538,10 @@ KdbEnterDebuggerException(
     OldEflags = __readeflags();
     _disable();
 
-    /* HACK: Save the current IRQL and pretend we are at passive level,
-     * although interrupts are off. Needed because KDBG calls pageable code. */
+    /* HACK: Save the current IRQL and pretend we are at dispatch level */
     OldIrql = KeGetCurrentIrql();
-    KeLowerIrql(PASSIVE_LEVEL);
+    if (OldIrql > DISPATCH_LEVEL)
+        KeLowerIrql(DISPATCH_LEVEL);
 
     /* Exception inside the debugger? Game over. */
     if (InterlockedIncrement(&KdbEntryCount) > 1)
@@ -1552,8 +1559,8 @@ KdbEnterDebuggerException(
         /* Variable explains itself! */
         KdbpEvenThoughWeHaveABreakPointToReenableWeAlsoHaveARealSingleStep = TRUE;
 
-        if ((KdbSingleStepOver && KdbpStepOverInstruction(KdbCurrentTrapFrame->Eip)) ||
-            (!KdbSingleStepOver && KdbpStepIntoInstruction(KdbCurrentTrapFrame->Eip)))
+        if ((KdbSingleStepOver && KdbpStepOverInstruction(KeGetContextPc(KdbCurrentTrapFrame))) ||
+            (!KdbSingleStepOver && KdbpStepIntoInstruction(KeGetContextPc(KdbCurrentTrapFrame))))
         {
             ASSERT((KdbCurrentTrapFrame->EFlags & EFLAGS_TF) == 0);
             /*KdbCurrentTrapFrame->EFlags &= ~EFLAGS_TF;*/
@@ -1579,7 +1586,8 @@ KdbEnterDebuggerException(
     InterlockedDecrement(&KdbEntryCount);
 
     /* HACK: Raise back to old IRQL */
-    KeRaiseIrql(OldIrql, &OldIrql);
+    if (OldIrql > DISPATCH_LEVEL)
+        KeRaiseIrql(OldIrql, &OldIrql);
 
     /* Leave critical section */
     __writeeflags(OldEflags);
@@ -1608,7 +1616,7 @@ continue_execution:
         if (!(KdbEnteredOnSingleStep && KdbSingleStepOver))
         {
             /* Skip the current instruction */
-            Context->Eip++;
+            KeSetContextPc(Context, KeGetContextPc(Context) + KD_BREAKPOINT_SIZE);
         }
     }
 
@@ -1625,7 +1633,10 @@ KdbEnterDebuggerFirstChanceException(
 
     /* Copy TrapFrame to Context */
     RtlZeroMemory(&Context, sizeof(CONTEXT));
-    Context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_EXTENDED_REGISTERS | CONTEXT_FLOATING_POINT | CONTEXT_DEBUG_REGISTERS;
+    Context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_FLOATING_POINT | CONTEXT_DEBUG_REGISTERS;
+#ifdef CONTEXT_EXTENDED_REGISTERS
+    Context.ContextFlags |= CONTEXT_EXTENDED_REGISTERS;
+#endif
     KeTrapFrameToContext(TrapFrame, NULL, &Context);
 
     /* Create ExceptionRecord (assume breakpoint) */

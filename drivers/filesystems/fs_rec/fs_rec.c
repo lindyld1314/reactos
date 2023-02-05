@@ -23,21 +23,22 @@ NTAPI
 FsRecLoadFileSystem(IN PDEVICE_OBJECT DeviceObject,
                     IN PWCHAR DriverServiceName)
 {
-    UNICODE_STRING DriverName;
-    PDEVICE_EXTENSION DeviceExtension = DeviceObject->DeviceExtension;
     NTSTATUS Status = STATUS_IMAGE_ALREADY_LOADED;
+    PDEVICE_EXTENSION DeviceExtension = DeviceObject->DeviceExtension;
+    UNICODE_STRING DriverName;
+
     PAGED_CODE();
 
     /* Make sure we haven't already been called */
     if (DeviceExtension->State != Loaded)
     {
         /* Acquire the load lock */
+        KeEnterCriticalRegion();
         KeWaitForSingleObject(FsRecLoadSync,
                               Executive,
                               KernelMode,
                               FALSE,
                               NULL);
-        KeEnterCriticalRegion();
 
         /* Make sure we're active */
         if (DeviceExtension->State == Pending)
@@ -67,11 +68,10 @@ FsRecLoadFileSystem(IN PDEVICE_OBJECT DeviceObject,
         }
 
         /* Release the lock */
-        KeSetEvent(FsRecLoadSync, 0, FALSE);
+        KeSetEvent(FsRecLoadSync, IO_NO_INCREMENT, FALSE);
         KeLeaveCriticalRegion();
     }
 
-    /* Return */
     return Status;
 }
 
@@ -182,6 +182,12 @@ FsRecFsControl(IN PDEVICE_OBJECT DeviceObject,
             Status = FsRecFfsFsControl(DeviceObject, Irp);
             break;
 
+        case FS_TYPE_FATX:
+
+            /* Send FATX command */
+            Status = FsRecFatxFsControl(DeviceObject, Irp);
+            break;
+
         default:
 
             /* Unrecognized FS */
@@ -238,7 +244,7 @@ FsRecRegisterFs(IN PDRIVER_OBJECT DriverObject,
     RtlInitUnicodeString(&DeviceName, FsName);
     InitializeObjectAttributes(&ObjectAttributes,
                                &DeviceName,
-                               OBJ_CASE_INSENSITIVE,
+                               OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
                                0,
                                NULL);
 
@@ -318,10 +324,12 @@ NTAPI
 DriverEntry(IN PDRIVER_OBJECT DriverObject,
             IN PUNICODE_STRING RegistryPath)
 {
-    ULONG DeviceCount = 0;
     NTSTATUS Status;
+    ULONG DeviceCount = 0;
     PDEVICE_OBJECT CdfsObject;
     PDEVICE_OBJECT UdfsObject;
+    PDEVICE_OBJECT FatObject;
+
     PAGED_CODE();
 
     UNREFERENCED_PARAMETER(RegistryPath);
@@ -392,11 +400,22 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
     /* Register FAT */
     Status = FsRecRegisterFs(DriverObject,
                              NULL,
-                             NULL,
+                             &FatObject,
                              L"\\Fat",
                              L"\\FileSystem\\FatRecognizer",
                              FS_TYPE_VFAT,
                              FILE_DEVICE_DISK_FILE_SYSTEM,
+                             0);
+    if (NT_SUCCESS(Status)) DeviceCount++;
+
+    /* Register FAT for CDs */
+    Status = FsRecRegisterFs(DriverObject,
+                             FatObject,
+                             NULL,
+                             L"\\FatCdrom",
+                             L"\\FileSystem\\FatCdRomRecognizer",
+                             FS_TYPE_VFAT,
+                             FILE_DEVICE_CD_ROM_FILE_SYSTEM,
                              0);
     if (NT_SUCCESS(Status)) DeviceCount++;
 
@@ -451,6 +470,17 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
                              L"\\ffs",
                              L"\\FileSystem\\FfsRecognizer",
                              FS_TYPE_FFS,
+                             FILE_DEVICE_DISK_FILE_SYSTEM,
+                             0);
+    if (NT_SUCCESS(Status)) DeviceCount++;
+
+    /* Register FATX */
+    Status = FsRecRegisterFs(DriverObject,
+                             NULL,
+                             NULL,
+                             L"\\FatX",
+                             L"\\FileSystem\\FatXRecognizer",
+                             FS_TYPE_FATX,
                              FILE_DEVICE_DISK_FILE_SYSTEM,
                              0);
     if (NT_SUCCESS(Status)) DeviceCount++;

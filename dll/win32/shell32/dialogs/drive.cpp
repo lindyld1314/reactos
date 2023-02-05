@@ -35,6 +35,35 @@ typedef struct
 EXTERN_C HPSXA WINAPI SHCreatePropSheetExtArrayEx(HKEY hKey, LPCWSTR pszSubKey, UINT max_iface, IDataObject *pDataObj);
 HPROPSHEETPAGE SH_CreatePropertySheetPage(LPCSTR resname, DLGPROC dlgproc, LPARAM lParam, LPWSTR szTitle);
 
+/*
+ * TODO: In Windows the Shell doesn't know by itself if a drive is
+ * a system one or not but rather a packet message is being sent by
+ * FMIFS library code and further translated into specific packet
+ * status codes in the Shell, the packet being _FMIFS_PACKET_TYPE.
+ *
+ * With that being said, most of this code as well as FMIFS library code
+ * have to be refactored in order to comply with the way Windows works.
+ *
+ * See the enum definition for more details:
+ * https://github.com/microsoft/winfile/blob/master/src/fmifs.h#L23
+ */
+static BOOL
+IsSystemDrive(PFORMAT_DRIVE_CONTEXT pContext)
+{
+    WCHAR wszDriveLetter[6], wszSystemDrv[6];
+
+    wszDriveLetter[0] = pContext->Drive + L'A';
+    StringCchCatW(wszDriveLetter, _countof(wszDriveLetter), L":");
+
+    if (!GetEnvironmentVariableW(L"SystemDrive", wszSystemDrv, _countof(wszSystemDrv)))
+        return FALSE;
+
+    if (!wcsicmp(wszDriveLetter, wszSystemDrv))
+        return TRUE;
+
+    return FALSE;
+}
+
 static BOOL
 GetDefaultClusterSize(LPWSTR szFs, PDWORD pClusterSize, PULARGE_INTEGER TotalNumberOfBytes)
 {
@@ -137,59 +166,62 @@ typedef struct _DRIVE_PROP_PAGE
     UINT DriveType;
 } DRIVE_PROP_PAGE;
 
-HRESULT
-SH_ShowDriveProperties(WCHAR *pwszDrive, LPCITEMIDLIST pidlFolder, PCUITEMID_CHILD_ARRAY apidl)
+BOOL
+SH_ShowDriveProperties(WCHAR *pwszDrive, IDataObject *pDataObj)
 {
     HPSXA hpsx = NULL;
     HPROPSHEETPAGE hpsp[MAX_PROPERTY_SHEET_PAGE];
-    PROPSHEETHEADERW psh;
     CComObject<CDrvDefExt> *pDrvDefExt = NULL;
-    WCHAR wszName[256];
 
-    ZeroMemory(&psh, sizeof(PROPSHEETHEADERW));
-    psh.dwSize = sizeof(PROPSHEETHEADERW);
-    psh.dwFlags = 0; // FIXME: make it modeless
-    psh.hwndParent = NULL;
+    CDataObjectHIDA cida(pDataObj);
+    if (FAILED_UNEXPECTEDLY(cida.hr()))
+        return FAILED(cida.hr());
+
+    RECT rcPosition = {CW_USEDEFAULT, CW_USEDEFAULT, 0, 0};
+    POINT pt;
+    if (SUCCEEDED(DataObject_GetOffset(pDataObj, &pt)))
+    {
+        rcPosition.left = pt.x;
+        rcPosition.top = pt.y;
+    }
+
+    DWORD style = WS_DISABLED | WS_CLIPSIBLINGS | WS_CAPTION;
+    DWORD exstyle = WS_EX_WINDOWEDGE | WS_EX_APPWINDOW;
+    CStubWindow32 stub;
+    if (!stub.Create(NULL, rcPosition, NULL, style, exstyle))
+    {
+        ERR("StubWindow32 creation failed\n");
+        return FALSE;
+    }
+
+    PROPSHEETHEADERW psh = {sizeof(PROPSHEETHEADERW)};
+    psh.dwFlags = PSH_PROPTITLE;
+    psh.pszCaption = pwszDrive;
+    psh.hwndParent = stub;
     psh.nStartPage = 0;
     psh.phpage = hpsp;
 
-    LPITEMIDLIST completePidl = ILCombine(pidlFolder, apidl[0]);
-    if (!completePidl)
-        return E_OUTOFMEMORY;
-
-    if (ILGetDisplayNameExW(NULL, completePidl, wszName, ILGDN_NORMAL))
-    {
-        psh.pszCaption = wszName;
-        psh.dwFlags |= PSH_PROPTITLE;
-    }
-    
-    ILFree(completePidl);
-
-    CComPtr<IDataObject> pDataObj;
-    HRESULT hr = SHCreateDataObject(pidlFolder, 1, apidl, NULL, IID_PPV_ARG(IDataObject, &pDataObj));
-
+    HRESULT hr = CComObject<CDrvDefExt>::CreateInstance(&pDrvDefExt);
     if (SUCCEEDED(hr))
     {
-        hr = CComObject<CDrvDefExt>::CreateInstance(&pDrvDefExt);
+        pDrvDefExt->AddRef(); // CreateInstance returns object with 0 ref count
+        hr = pDrvDefExt->Initialize(HIDA_GetPIDLFolder(cida), pDataObj, NULL);
         if (SUCCEEDED(hr))
         {
-            pDrvDefExt->AddRef(); // CreateInstance returns object with 0 ref count
-            hr = pDrvDefExt->Initialize(pidlFolder, pDataObj, NULL);
-            if (SUCCEEDED(hr))
-            {
-                hr = pDrvDefExt->AddPages(AddPropSheetPageCallback, (LPARAM)&psh);
-                if (FAILED(hr))
-                    ERR("AddPages failed\n");
-            } else
-                ERR("Initialize failed\n");
+            hr = pDrvDefExt->AddPages(AddPropSheetPageCallback, (LPARAM)&psh);
+            if (FAILED(hr))
+                ERR("AddPages failed\n");
         }
-
-        hpsx = SHCreatePropSheetExtArrayEx(HKEY_CLASSES_ROOT, L"Drive", MAX_PROPERTY_SHEET_PAGE, pDataObj);
-        if (hpsx)
-            SHAddFromPropSheetExtArray(hpsx, (LPFNADDPROPSHEETPAGE)AddPropSheetPageCallback, (LPARAM)&psh);
+        else
+        {
+            ERR("Initialize failed\n");
+        }
     }
 
-    // NOTE: Currently property sheet is modal. If we make it modeless, then it returns HWND.
+    hpsx = SHCreatePropSheetExtArrayEx(HKEY_CLASSES_ROOT, L"Drive", MAX_PROPERTY_SHEET_PAGE, pDataObj);
+    if (hpsx)
+        SHAddFromPropSheetExtArray(hpsx, (LPFNADDPROPSHEETPAGE)AddPropSheetPageCallback, (LPARAM)&psh);
+
     INT_PTR ret = PropertySheetW(&psh);
 
     if (hpsx)
@@ -197,11 +229,9 @@ SH_ShowDriveProperties(WCHAR *pwszDrive, LPCITEMIDLIST pidlFolder, PCUITEMID_CHI
     if (pDrvDefExt)
         pDrvDefExt->Release();
 
-    if (ret > 0)
-        return S_OK;
-    if (ret == 0)
-        return S_FALSE;
-    return E_FAIL;
+    stub.DestroyWindow();
+
+    return ret != -1;
 }
 
 static VOID
@@ -678,7 +708,16 @@ SHFormatDrive(HWND hwnd, UINT drive, UINT fmtID, UINT options)
     Context.Result = FALSE;
     Context.bFormattingNow = FALSE;
 
-    result = DialogBoxParamW(shell32_hInstance, MAKEINTRESOURCEW(IDD_FORMAT_DRIVE), hwnd, FormatDriveDlg, (LPARAM)&Context);
+    if (!IsSystemDrive(&Context))
+    {
+        result = DialogBoxParamW(shell32_hInstance, MAKEINTRESOURCEW(IDD_FORMAT_DRIVE), hwnd, FormatDriveDlg, (LPARAM)&Context);
+    }
+    else
+    {
+        result = SHFMT_ERROR;
+        ShellMessageBoxW(shell32_hInstance, hwnd, MAKEINTRESOURCEW(IDS_NO_FORMAT), MAKEINTRESOURCEW(IDS_NO_FORMAT_TITLE), MB_OK | MB_ICONWARNING);
+        TRACE("SHFormatDrive(): The provided drive for format is a system volume! Aborting...\n");
+    }
 
     return result;
 }

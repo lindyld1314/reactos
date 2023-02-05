@@ -3,9 +3,11 @@
  * LICENSE:         LGPLv2.1+ - See COPYING.LIB in the top level directory
  * PURPOSE:         Tests for the NtQueryInformationProcess API
  * PROGRAMMER:      Thomas Faber <thomas.faber@reactos.org>
+ *                  George Bișoc <george.bisoc@reactos.org>
  */
 
 #include "precomp.h"
+#include <internal/ps_i.h>
 
 static LARGE_INTEGER TestStartTime;
 
@@ -312,6 +314,15 @@ Test_ProcessWx86Information(void)
                                        ProcessWx86Information,
                                        &VdmPower,
                                        sizeof(VdmPower),
+                                       NULL);
+    ok_hex(Status, STATUS_SUCCESS);
+    ok(VdmPower == 0 || VdmPower == 1, "The VDM power value must be within the boundary between 0 and 1, not anything else! Got %lu\n", VdmPower);
+
+    /* Same but with ReturnLength */
+    Status = NtQueryInformationProcess(NtCurrentProcess(),
+                                       ProcessWx86Information,
+                                       &VdmPower,
+                                       sizeof(VdmPower),
                                        &ReturnLength);
     ok_hex(Status, STATUS_SUCCESS);
     ok(ReturnLength != 0, "ReturnLength shouldn't be 0!\n");
@@ -320,6 +331,38 @@ Test_ProcessWx86Information(void)
     /* Trace the VDM power value and returned length */
     trace("ReturnLength = %lu\n", ReturnLength);
     trace("VdmPower = %lu\n", VdmPower);
+}
+
+static
+void
+Test_ProcQueryAlignmentProbe(void)
+{
+    ULONG InfoClass;
+
+    /* Iterate over the process info classes and begin the tests */
+    for (InfoClass = 0; InfoClass < _countof(PsProcessInfoClass); InfoClass++)
+    {
+        /* The buffer is misaligned */
+        QuerySetProcessValidator(QUERY,
+                                 InfoClass,
+                                 (PVOID)(ULONG_PTR)1,
+                                 PsProcessInfoClass[InfoClass].RequiredSizeQUERY,
+                                 STATUS_DATATYPE_MISALIGNMENT);
+
+        /* We query an invalid buffer address */
+        QuerySetProcessValidator(QUERY,
+                                 InfoClass,
+                                 (PVOID)(ULONG_PTR)PsProcessInfoClass[InfoClass].AlignmentQUERY,
+                                 PsProcessInfoClass[InfoClass].RequiredSizeQUERY,
+                                 STATUS_ACCESS_VIOLATION);
+
+        /* The information length is wrong */
+        QuerySetProcessValidator(QUERY,
+                                 InfoClass,
+                                 (PVOID)(ULONG_PTR)PsProcessInfoClass[InfoClass].AlignmentQUERY,
+                                 PsProcessInfoClass[InfoClass].RequiredSizeQUERY - 1,
+                                 STATUS_INFO_LENGTH_MISMATCH);
+    }
 }
 
 START_TEST(NtQueryInformationProcess)
@@ -335,4 +378,5 @@ START_TEST(NtQueryInformationProcess)
     Test_ProcessTimes();
     Test_ProcessPriorityClassAlignment();
     Test_ProcessWx86Information();
+    Test_ProcQueryAlignmentProbe();
 }

@@ -1,5 +1,10 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 /* GLOBAL VARIABLES *********************************************************/
 
 extern RTL_TIME_ZONE_INFORMATION ExpTimeZoneInfo;
@@ -11,6 +16,7 @@ extern POBJECT_TYPE ExEventPairObjectType;
 extern POBJECT_TYPE _ExEventObjectType, _ExSemaphoreObjectType;
 extern FAST_MUTEX ExpEnvironmentLock;
 extern ERESOURCE ExpFirmwareTableResource;
+extern ERESOURCE ExpTimeRefreshLock;
 extern LIST_ENTRY ExpFirmwareTableProviderListHead;
 extern BOOLEAN ExpIsWinPEMode;
 extern LIST_ENTRY ExpSystemResourcesList;
@@ -185,6 +191,7 @@ C_ASSERT(RTL_FIELD_SIZE(UUID_CACHED_VALUES_STRUCT, GuidInit) == RTL_FIELD_SIZE(U
 
 /* INITIALIZATION FUNCTIONS *************************************************/
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpWin32kInit(VOID);
@@ -199,6 +206,7 @@ Phase1Initialization(
     IN PVOID Context
 );
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExpInitializePushLocks(VOID);
@@ -209,6 +217,7 @@ ExRefreshTimeZoneInformation(
     IN PLARGE_INTEGER SystemBootTime
 );
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExpInitializeWorkerThreads(VOID);
@@ -217,10 +226,12 @@ VOID
 NTAPI
 ExSwapinWorkerThreads(IN BOOLEAN AllowSwap);
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExpInitLookasideLists(VOID);
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExInitializeSystemLookasideList(
@@ -232,18 +243,22 @@ ExInitializeSystemLookasideList(
     IN PLIST_ENTRY ListHead
 );
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeCallbacks(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpUuidInitialization(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExLuidInitialization(VOID);
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExpInitializeExecutive(
@@ -255,38 +270,47 @@ VOID
 NTAPI
 ExShutdownSystem(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeEventImplementation(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeKeyedEventImplementation(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeEventPairImplementation(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeSemaphoreImplementation(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeMutantImplementation(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeTimerImplementation(VOID);
 
+CODE_SEG("INIT")
 BOOLEAN
 NTAPI
 ExpInitializeProfileImplementation(VOID);
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExpResourceInitialization(VOID);
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExInitPoolLookasidePointers(VOID);
@@ -426,6 +450,7 @@ typedef BOOLEAN
     ULONG_PTR Context
 );
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 ExpInitializeHandleTables(
@@ -1481,12 +1506,14 @@ ExTimerRundown(
     VOID
 );
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 HeadlessInit(
     IN PLOADER_PARAMETER_BLOCK LoaderBlock
 );
 
+CODE_SEG("INIT")
 VOID
 NTAPI
 XIPInit(
@@ -1511,5 +1538,17 @@ XIPInit(
 #define InterlockedCompareExchangeSizeT(Destination, Exchange, Comperand) \
    (SIZE_T)InterlockedCompareExchangePointer((PVOID*)(Destination), (PVOID)(SIZE_T)(Exchange), (PVOID)(SIZE_T)(Comperand))
 
+#ifdef _WIN64
+#define InterlockedExchangeSizeT(Target, Value) \
+    (SIZE_T)InterlockedExchange64((PLONG64)Target, (LONG64)Value)
+#else
+#define InterlockedExchangeSizeT(Target, Value) \
+    (SIZE_T)InterlockedExchange((PLONG)Target, (LONG)Value)
+#endif
+
 #define ExfInterlockedCompareExchange64UL(Destination, Exchange, Comperand) \
    (ULONGLONG)ExfInterlockedCompareExchange64((PLONGLONG)(Destination), (PLONGLONG)(Exchange), (PLONGLONG)(Comperand))
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

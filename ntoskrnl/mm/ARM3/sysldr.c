@@ -16,19 +16,6 @@
 #define MODULE_INVOLVED_IN_ARM3
 #include <mm/ARM3/miarm.h>
 
-static
-inline
-VOID
-sprintf_nt(IN PCHAR Buffer,
-           IN PCHAR Format,
-           IN ...)
-{
-    va_list ap;
-    va_start(ap, Format);
-    vsprintf(Buffer, Format, ap);
-    va_end(ap);
-}
-
 /* GLOBALS ********************************************************************/
 
 LIST_ENTRY PsLoadedModuleList;
@@ -49,6 +36,12 @@ BOOLEAN MmEnforceWriteProtection = TRUE;
 PMMPTE MiKernelResourceStartPte, MiKernelResourceEndPte;
 ULONG_PTR ExPoolCodeStart, ExPoolCodeEnd, MmPoolCodeStart, MmPoolCodeEnd;
 ULONG_PTR MmPteCodeStart, MmPteCodeEnd;
+
+#ifdef _WIN64
+#define DEFAULT_SECURITY_COOKIE 0x00002B992DDFA232ll
+#else
+#define DEFAULT_SECURITY_COOKIE 0xBB40E64E
+#endif
 
 /* FUNCTIONS ******************************************************************/
 
@@ -188,14 +181,7 @@ MiLoadImageSection(_Inout_ PSECTION *SectionPtr,
         /* Some debug stuff */
         MI_SET_USAGE(MI_USAGE_DRIVER_PAGE);
 #if MI_TRACE_PFNS
-        if (FileName->Buffer)
-        {
-            PWCHAR pos = NULL;
-            ULONG len = 0;
-            pos = wcsrchr(FileName->Buffer, '\\');
-            len = wcslen(pos) * sizeof(WCHAR);
-            if (pos) snprintf(MI_PFN_CURRENT_PROCESS_NAME, min(16, len), "%S", pos);
-        }
+        MI_SET_PROCESS_USTR(FileName);
 #endif
 
         /* Grab a page */
@@ -2437,8 +2423,6 @@ MiSetSystemCodeProtection(
 
     /* Flush it all */
     KeFlushEntireTb(TRUE, TRUE);
-
-    return;
 }
 
 VOID
@@ -2489,13 +2473,13 @@ MiWriteProtectSystemImage(
     /* Get the base address of the first section */
     SectionBase = Add2Ptr(ImageBase, SectionHeaders[0].VirtualAddress);
 
-    /* Start protecting the image header as R/O */
+    /* Start protecting the image header as R/W */
     FirstPte = MiAddressToPte(ImageBase);
     LastPte = MiAddressToPte(SectionBase) - 1;
-    Protection = IMAGE_SCN_MEM_READ;
+    Protection = IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
     if (LastPte >= FirstPte)
     {
-        MiSetSystemCodeProtection(FirstPte, LastPte, IMAGE_SCN_MEM_READ);
+        MiSetSystemCodeProtection(FirstPte, LastPte, Protection);
     }
 
     /* Loop the sections */
@@ -2563,17 +2547,20 @@ NTAPI
 MiSetPagingOfDriver(IN PMMPTE PointerPte,
                     IN PMMPTE LastPte)
 {
+#ifdef ENABLE_MISETPAGINGOFDRIVER
     PVOID ImageBase;
     PETHREAD CurrentThread = PsGetCurrentThread();
     PFN_COUNT PageCount = 0;
     PFN_NUMBER PageFrameIndex;
     PMMPFN Pfn1;
+#endif // ENABLE_MISETPAGINGOFDRIVER
+
     PAGED_CODE();
 
+#ifndef ENABLE_MISETPAGINGOFDRIVER
     /* The page fault handler is broken and doesn't page back in! */
     DPRINT1("WARNING: MiSetPagingOfDriver() called, but paging is broken! ignoring!\n");
-    return;
-
+#else  // ENABLE_MISETPAGINGOFDRIVER
     /* Get the driver's base address */
     ImageBase = MiPteToAddress(PointerPte);
     ASSERT(MI_IS_SESSION_IMAGE_ADDRESS(ImageBase) == FALSE);
@@ -2611,6 +2598,7 @@ MiSetPagingOfDriver(IN PMMPTE PointerPte,
         /* Update counters */
         InterlockedExchangeAdd((PLONG)&MmTotalSystemDriverPages, PageCount);
     }
+#endif // ENABLE_MISETPAGINGOFDRIVER
 }
 
 VOID
@@ -2814,6 +2802,84 @@ Fail:
     return Status;
 }
 
+
+PVOID
+NTAPI
+LdrpFetchAddressOfSecurityCookie(PVOID BaseAddress, ULONG SizeOfImage)
+{
+    PIMAGE_LOAD_CONFIG_DIRECTORY ConfigDir;
+    ULONG DirSize;
+    PVOID Cookie = NULL;
+
+    /* Check NT header first */
+    if (!RtlImageNtHeader(BaseAddress)) return NULL;
+
+    /* Get the pointer to the config directory */
+    ConfigDir = RtlImageDirectoryEntryToData(BaseAddress,
+                                             TRUE,
+                                             IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
+                                             &DirSize);
+
+    /* Check for sanity */
+    if (!ConfigDir ||
+        DirSize < FIELD_OFFSET(IMAGE_LOAD_CONFIG_DIRECTORY, SEHandlerTable) ||  /* SEHandlerTable is after SecurityCookie */
+        (ConfigDir->Size != DirSize))
+    {
+        /* Invalid directory*/
+        return NULL;
+    }
+
+    /* Now get the cookie */
+    Cookie = (PVOID)ConfigDir->SecurityCookie;
+
+    /* Check this cookie */
+    if ((PCHAR)Cookie <= (PCHAR)BaseAddress ||
+        (PCHAR)Cookie >= (PCHAR)BaseAddress + SizeOfImage)
+    {
+        Cookie = NULL;
+    }
+
+    /* Return validated security cookie */
+    return Cookie;
+}
+
+PVOID
+NTAPI
+LdrpInitSecurityCookie(PLDR_DATA_TABLE_ENTRY LdrEntry)
+{
+    PULONG_PTR Cookie;
+    ULONG_PTR NewCookie;
+
+    /* Fetch address of the cookie */
+    Cookie = LdrpFetchAddressOfSecurityCookie(LdrEntry->DllBase, LdrEntry->SizeOfImage);
+
+    if (Cookie)
+    {
+        /* Check if it's a default one */
+        if ((*Cookie == DEFAULT_SECURITY_COOKIE) ||
+            (*Cookie == 0))
+        {
+            LARGE_INTEGER Counter = KeQueryPerformanceCounter(NULL);
+            /* The address should be unique */
+            NewCookie = (ULONG_PTR)Cookie;
+
+            /* We just need a simple tick, don't care about precision and whatnot */
+            NewCookie ^= (ULONG_PTR)Counter.LowPart;
+
+            /* If the result is 0 or the same as we got, just add one to the default value */
+            if ((NewCookie == 0) || (NewCookie == *Cookie))
+            {
+                NewCookie = DEFAULT_SECURITY_COOKIE + 1;
+            }
+
+            /* Set the new cookie value */
+            *Cookie = NewCookie;
+        }
+    }
+
+    return Cookie;
+}
+
 NTSTATUS
 NTAPI
 MmLoadSystemImage(IN PUNICODE_STRING FileName,
@@ -2829,19 +2895,19 @@ MmLoadSystemImage(IN PUNICODE_STRING FileName,
     OBJECT_ATTRIBUTES ObjectAttributes;
     IO_STATUS_BLOCK IoStatusBlock;
     PIMAGE_NT_HEADERS NtHeader;
-    UNICODE_STRING BaseName, BaseDirectory, PrefixName, UnicodeTemp;
+    UNICODE_STRING BaseName, BaseDirectory, PrefixName;
     PLDR_DATA_TABLE_ENTRY LdrEntry = NULL;
     ULONG EntrySize, DriverSize;
     PLOAD_IMPORTS LoadedImports = MM_SYSLDR_NO_IMPORTS;
     PCHAR MissingApiName, Buffer;
-    PWCHAR MissingDriverName;
+    PWCHAR MissingDriverName, PrefixedBuffer = NULL;
     HANDLE SectionHandle;
     ACCESS_MASK DesiredAccess;
     PSECTION Section = NULL;
     BOOLEAN LockOwned = FALSE;
     PLIST_ENTRY NextEntry;
     IMAGE_INFO ImageInfo;
-    STRING AnsiTemp;
+
     PAGED_CODE();
 
     /* Detect session-load */
@@ -2898,7 +2964,52 @@ MmLoadSystemImage(IN PUNICODE_STRING FileName,
     PrefixName = *FileName;
 
     /* Check if we have a prefix */
-    if (NamePrefix) DPRINT1("Prefixed images are not yet supported!\n");
+    if (NamePrefix)
+    {
+        /* Check if "directory + prefix" is too long for the string */
+        Status = RtlUShortAdd(BaseDirectory.Length,
+                              NamePrefix->Length,
+                              &PrefixName.MaximumLength);
+        if (!NT_SUCCESS(Status))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            goto Quickie;
+        }
+
+        /* Check if "directory + prefix + basename" is too long for the string */
+        Status = RtlUShortAdd(PrefixName.MaximumLength,
+                              BaseName.Length,
+                              &PrefixName.MaximumLength);
+        if (!NT_SUCCESS(Status))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+            goto Quickie;
+        }
+
+        /* Allocate the buffer exclusively used for prefixed name */
+        PrefixedBuffer = ExAllocatePoolWithTag(PagedPool,
+                                               PrefixName.MaximumLength,
+                                               TAG_LDR_WSTR);
+        if (!PrefixedBuffer)
+        {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Quickie;
+        }
+
+        /* Clear out the prefixed name string */
+        PrefixName.Buffer = PrefixedBuffer;
+        PrefixName.Length = 0;
+
+        /* Concatenate the strings */
+        RtlAppendUnicodeStringToString(&PrefixName, &BaseDirectory);
+        RtlAppendUnicodeStringToString(&PrefixName, NamePrefix);
+        RtlAppendUnicodeStringToString(&PrefixName, &BaseName);
+
+        /* Now the base name of the image becomes the prefixed version */
+        BaseName.Buffer = &(PrefixName.Buffer[BaseDirectory.Length / sizeof(WCHAR)]);
+        BaseName.Length += NamePrefix->Length;
+        BaseName.MaximumLength = (PrefixName.MaximumLength - BaseDirectory.Length);
+    }
 
     /* Check if we already have a name, use it instead */
     if (LoadedName) BaseName = *LoadedName;
@@ -3259,6 +3370,9 @@ LoaderScan:
     /* Write-protect the system image */
     MiWriteProtectSystemImage(LdrEntry->DllBase);
 
+    /* Initialize the security cookie (Win7 is not doing this yet!) */
+    LdrpInitSecurityCookie(LdrEntry);
+
     /* Check if notifications are enabled */
     if (PsImageNotifyEnabled)
     {
@@ -3282,6 +3396,9 @@ LoaderScan:
     if (MiCacheImageSymbols(LdrEntry->DllBase))
 #endif
     {
+        UNICODE_STRING UnicodeTemp;
+        STRING AnsiTemp;
+
         /* Check if the system root is present */
         if ((PrefixName.Length > (11 * sizeof(WCHAR))) &&
             !(_wcsnicmp(PrefixName.Buffer, L"\\SystemRoot", 11)))
@@ -3290,18 +3407,20 @@ LoaderScan:
             UnicodeTemp = PrefixName;
             UnicodeTemp.Buffer += 11;
             UnicodeTemp.Length -= (11 * sizeof(WCHAR));
-            sprintf_nt(Buffer,
-                       "%ws%wZ",
-                       &SharedUserData->NtSystemRoot[2],
-                       &UnicodeTemp);
+            RtlStringCbPrintfA(Buffer,
+                               MAXIMUM_FILENAME_LENGTH,
+                               "%ws%wZ",
+                               &SharedUserData->NtSystemRoot[2],
+                               &UnicodeTemp);
         }
         else
         {
             /* Build the name */
-            sprintf_nt(Buffer, "%wZ", &BaseName);
+            RtlStringCbPrintfA(Buffer, MAXIMUM_FILENAME_LENGTH,
+                               "%wZ", &BaseName);
         }
 
-        /* Setup the ansi string */
+        /* Setup the ANSI string */
         RtlInitString(&AnsiTemp, Buffer);
 
         /* Notify the debugger */
@@ -3332,8 +3451,8 @@ Quickie:
     /* If we have a file handle, close it */
     if (FileHandle) ZwClose(FileHandle);
 
-    /* Check if we had a prefix (not supported yet - PrefixName == *FileName now) */
-    /* if (NamePrefix) ExFreePool(PrefixName.Buffer); */
+    /* If we have allocated a prefixed name buffer, free it */
+    if (PrefixedBuffer) ExFreePoolWithTag(PrefixedBuffer, TAG_LDR_WSTR);
 
     /* Free the name buffer and return status */
     ExFreePoolWithTag(Buffer, TAG_LDR_WSTR);
@@ -3441,7 +3560,7 @@ MmGetSystemRoutineAddress(IN PUNICODE_STRING SystemRoutineName)
     UNICODE_STRING HalName = RTL_CONSTANT_STRING(L"hal.dll");
     ULONG Modules = 0;
 
-    /* Convert routine to ansi name */
+    /* Convert routine to ANSI name */
     Status = RtlUnicodeStringToAnsiString(&AnsiRoutineName,
                                           SystemRoutineName,
                                           TRUE);

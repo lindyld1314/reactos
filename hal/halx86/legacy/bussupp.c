@@ -12,6 +12,92 @@
 #define NDEBUG
 #include <debug.h>
 
+CODE_SEG("INIT")
+PBUS_HANDLER
+NTAPI
+HalpAllocateAndInitPciBusHandler(
+    IN ULONG PciType,
+    IN ULONG BusNo,
+    IN BOOLEAN TestAllocation
+);
+
+CODE_SEG("INIT")
+VOID
+NTAPI
+HalpFixupPciSupportedRanges(
+    IN ULONG BusCount
+);
+
+CODE_SEG("INIT")
+NTSTATUS
+NTAPI
+HalpGetChipHacks(
+    IN USHORT VendorId,
+    IN USHORT DeviceId,
+    IN UCHAR RevisionId,
+    IN PULONG HackFlags
+);
+
+CODE_SEG("INIT")
+BOOLEAN
+NTAPI
+HalpGetPciBridgeConfig(
+    IN ULONG PciType,
+    IN PUCHAR BusCount
+);
+
+CODE_SEG("INIT")
+BOOLEAN
+NTAPI
+HalpIsBridgeDevice(
+    IN PPCI_COMMON_CONFIG PciData
+);
+
+CODE_SEG("INIT")
+BOOLEAN
+NTAPI
+HalpIsIdeDevice(
+    IN PPCI_COMMON_CONFIG PciData
+);
+
+CODE_SEG("INIT")
+BOOLEAN
+NTAPI
+HalpIsRecognizedCard(
+    IN PPCI_REGISTRY_INFO_INTERNAL PciRegistryInfo,
+    IN PPCI_COMMON_CONFIG PciData,
+    IN ULONG Flags
+);
+
+CODE_SEG("INIT")
+BOOLEAN
+NTAPI
+HalpIsValidPCIDevice(
+    IN PBUS_HANDLER BusHandler,
+    IN PCI_SLOT_NUMBER Slot
+);
+
+CODE_SEG("INIT")
+NTSTATUS
+NTAPI
+HalpMarkChipsetDecode(
+    IN BOOLEAN OverrideEnable
+);
+
+CODE_SEG("INIT")
+VOID
+NTAPI
+HalpRegisterInternalBusHandlers(
+    VOID
+);
+
+CODE_SEG("INIT")
+VOID
+NTAPI
+ShowSize(
+    IN ULONG Size
+);
+
 /* GLOBALS ********************************************************************/
 
 extern KSPIN_LOCK HalpPCIConfigLock;
@@ -66,6 +152,7 @@ HalpAllocateBusHandler(IN INTERFACE_TYPE InterfaceType,
     return Bus;
 }
 
+#ifndef _MINIHAL_
 CODE_SEG("INIT")
 VOID
 NTAPI
@@ -139,6 +226,7 @@ HalpRegisterInternalBusHandlers(VOID)
     /* No support for EISA or MCA */
     ASSERT(HalpBusType == MACHINE_TYPE_ISA);
 }
+#endif // _MINIHAL_
 
 #ifndef _MINIHAL_
 CODE_SEG("INIT")
@@ -699,12 +787,15 @@ ShowSize(ULONG x)
 CODE_SEG("INIT")
 VOID
 NTAPI
-HalpDebugPciDumpBus(IN ULONG i,
+HalpDebugPciDumpBus(IN PBUS_HANDLER BusHandler,
+                    IN PCI_SLOT_NUMBER PciSlot,
+                    IN ULONG i,
                     IN ULONG j,
                     IN ULONG k,
                     IN PPCI_COMMON_CONFIG PciData)
 {
     PCHAR p, ClassName, Boundary, SubClassName, VendorName, ProductName, SubVendorName;
+    UCHAR HeaderType;
     ULONG Length;
     CHAR LookupString[16] = "";
     CHAR bSubClassName[64] = "Unknown";
@@ -712,6 +803,8 @@ HalpDebugPciDumpBus(IN ULONG i,
     CHAR bProductName[128] = "Unknown device";
     CHAR bSubVendorName[128] = "Unknown";
     ULONG Size, Mem, b;
+
+    HeaderType = (PciData->HeaderType & ~PCI_MULTIFUNCTION);
 
     /* Isolate the class name */
     sprintf(LookupString, "C %02x  ", PciData->BaseClass);
@@ -786,16 +879,20 @@ HalpDebugPciDumpBus(IN ULONG i,
                 p += strlen("\r\n");
             }
             Boundary = p;
+            SubVendorName = NULL;
 
-            /* Isolate the subvendor and subsystem name */
-            sprintf(LookupString,
-                    "\t\t%04x %04x  ",
-                    PciData->u.type0.SubVendorID,
-                    PciData->u.type0.SubSystemID);
-            SubVendorName = strstr(ProductName, LookupString);
-            if (Boundary && SubVendorName >= Boundary)
+            if (HeaderType == PCI_DEVICE_TYPE)
             {
-                SubVendorName = NULL;
+                /* Isolate the subvendor and subsystem name */
+                sprintf(LookupString,
+                        "\t\t%04x %04x  ",
+                        PciData->u.type0.SubVendorID,
+                        PciData->u.type0.SubSystemID);
+                SubVendorName = strstr(ProductName, LookupString);
+                if (Boundary && SubVendorName >= Boundary)
+                {
+                    SubVendorName = NULL;
+                }
             }
             if (SubVendorName)
             {
@@ -811,8 +908,7 @@ HalpDebugPciDumpBus(IN ULONG i,
     }
 
     /* Print out the data */
-    DbgPrint("%02x:%02x.%x %s [%02x%02x]: %s %s [%04x:%04x] (rev %02x)\n"
-             "\tSubsystem: %s [%04x:%04x]\n",
+    DbgPrint("%02x:%02x.%x %s [%02x%02x]: %s %s [%04x:%04x] (rev %02x)\n",
              i,
              j,
              k,
@@ -823,10 +919,15 @@ HalpDebugPciDumpBus(IN ULONG i,
              bProductName,
              PciData->VendorID,
              PciData->DeviceID,
-             PciData->RevisionID,
-             bSubVendorName,
-             PciData->u.type0.SubVendorID,
-             PciData->u.type0.SubSystemID);
+             PciData->RevisionID);
+
+    if (HeaderType == PCI_DEVICE_TYPE)
+    {
+        DbgPrint("\tSubsystem: %s [%04x:%04x]\n",
+                 bSubVendorName,
+                 PciData->u.type0.SubVendorID,
+                 PciData->u.type0.SubSystemID);
+    }
 
     /* Print out and decode flags */
     DbgPrint("\tFlags:");
@@ -843,20 +944,51 @@ HalpDebugPciDumpBus(IN ULONG i,
     else if (PciData->u.type0.InterruptPin != 0) DbgPrint(", IRQ assignment required");
     DbgPrint("\n");
 
+    if (HeaderType == PCI_BRIDGE_TYPE)
+    {
+        DbgPrint("\tBridge:");
+        DbgPrint(" primary bus %d,", PciData->u.type1.PrimaryBus);
+        DbgPrint(" secondary bus %d,", PciData->u.type1.SecondaryBus);
+        DbgPrint(" subordinate bus %d,", PciData->u.type1.SubordinateBus);
+        DbgPrint(" secondary latency %d", PciData->u.type1.SecondaryLatency);
+        DbgPrint("\n");
+    }
+
     /* Scan addresses */
     Size = 0;
-    for (b = 0; b < PCI_TYPE0_ADDRESSES; b++)
+    for (b = 0; b < (HeaderType == PCI_DEVICE_TYPE ? PCI_TYPE0_ADDRESSES : PCI_TYPE1_ADDRESSES); b++)
     {
         /* Check for a BAR */
-        Mem = PciData->u.type0.BaseAddresses[b];
+        if (HeaderType != PCI_CARDBUS_BRIDGE_TYPE)
+            Mem = PciData->u.type0.BaseAddresses[b];
+        else
+            Mem = 0;
         if (Mem)
         {
+            ULONG PciBar = 0xFFFFFFFF;
+
+            HalpWritePCIConfig(BusHandler,
+                               PciSlot,
+                               &PciBar,
+                               FIELD_OFFSET(PCI_COMMON_HEADER, u.type0.BaseAddresses[b]),
+                               sizeof(ULONG));
+            HalpReadPCIConfig(BusHandler,
+                              PciSlot,
+                              &PciBar,
+                              FIELD_OFFSET(PCI_COMMON_HEADER, u.type0.BaseAddresses[b]),
+                              sizeof(ULONG));
+            HalpWritePCIConfig(BusHandler,
+                               PciSlot,
+                               &Mem,
+                               FIELD_OFFSET(PCI_COMMON_HEADER, u.type0.BaseAddresses[b]),
+                               sizeof(ULONG));
+
             /* Decode the address type */
-            if (Mem & PCI_ADDRESS_IO_SPACE)
+            if (PciBar & PCI_ADDRESS_IO_SPACE)
             {
                 /* Guess the size */
                 Size = 1 << 2;
-                while (!(Mem & Size) && (Size)) Size <<= 1;
+                while (!(PciBar & Size) && (Size)) Size <<= 1;
 
                 /* Print it out */
                 DbgPrint("\tI/O ports at %04lx", Mem & PCI_ADDRESS_IO_ADDRESS_MASK);
@@ -865,8 +997,8 @@ HalpDebugPciDumpBus(IN ULONG i,
             else
             {
                 /* Guess the size */
-                Size = 1 << 8;
-                while (!(Mem & Size) && (Size)) Size <<= 1;
+                Size = 1 << 4;
+                while (!(PciBar & Size) && (Size)) Size <<= 1;
 
                 /* Print it out */
                 DbgPrint("\tMemory at %08lx (%d-bit, %sprefetchable)",
@@ -990,7 +1122,7 @@ HalpInitializePciBus(VOID)
                 if (PciData->VendorID == PCI_INVALID_VENDORID) continue;
 
                 /* Print out the entry */
-                HalpDebugPciDumpBus(i, j, k, PciData);
+                HalpDebugPciDumpBus(BusHandler, PciSlot, i, j, k, PciData);
 
                 /* Check if this is a Cardbus bridge */
                 if (PCI_CONFIGURATION_TYPE(PciData) == PCI_CARDBUS_BRIDGE_TYPE)
@@ -1120,6 +1252,7 @@ HalpInitializePciBus(VOID)
 #endif
 }
 
+#ifndef _MINIHAL_
 CODE_SEG("INIT")
 VOID
 NTAPI
@@ -1152,6 +1285,7 @@ HalpRegisterKdSupportFunctions(VOID)
     /* Register ACPI stub */
     KdCheckPowerButton = HalpCheckPowerButton;
 }
+#endif // _MINIHAL_
 
 NTSTATUS
 NTAPI
@@ -1295,6 +1429,7 @@ HaliTranslateBusAddress(IN INTERFACE_TYPE InterfaceType,
 
 /* PUBLIC FUNCTIONS **********************************************************/
 
+#ifndef _MINIHAL_
 /*
  * @implemented
  */
@@ -1320,6 +1455,7 @@ HalAdjustResourceList(IN PIO_RESOURCE_REQUIREMENTS_LIST *ResourceList)
     HalDereferenceBusHandler(Handler);
     return Status;
 }
+#endif // _MINIHAL_
 
 /*
  * @implemented
@@ -1364,6 +1500,7 @@ HalAssignSlotResources(IN PUNICODE_STRING RegistryPath,
     }
 }
 
+#ifndef _MINIHAL_
 /*
  * @implemented
  */
@@ -1383,6 +1520,7 @@ HalGetBusData(IN BUS_DATA_TYPE BusDataType,
                                  0,
                                  Length);
 }
+#endif // _MINIHAL_
 
 /*
  * @implemented
@@ -1416,6 +1554,7 @@ HalGetBusDataByOffset(IN BUS_DATA_TYPE BusDataType,
     return Status;
 }
 
+#ifndef _MINIHAL_
 /*
  * @implemented
  */
@@ -1513,6 +1652,7 @@ HalSetBusDataByOffset(IN BUS_DATA_TYPE BusDataType,
     HalDereferenceBusHandler(Handler);
     return Status;
 }
+#endif // _MINIHAL_
 
 /*
  * @implemented

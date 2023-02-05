@@ -323,8 +323,8 @@ typedef enum _FILE_INFORMATION_CLASS
     FileIdFullDirectoryInformation,
     FileValidDataLengthInformation,
     FileShortNameInformation,
-#if (NTDDI_VERSION >= NTDDI_VISTA)
     FileIoCompletionNotificationInformation,
+#if (NTDDI_VERSION >= NTDDI_VISTA)
     FileIoStatusBlockRangeInformation,
     FileIoPriorityHintInformation,
     FileSfioReserveInformation,
@@ -603,6 +603,11 @@ typedef struct _FILE_COMPLETION_INFORMATION
     HANDLE Port;
     PVOID Key;
 } FILE_COMPLETION_INFORMATION, *PFILE_COMPLETION_INFORMATION;
+
+typedef struct _FILE_IO_COMPLETION_NOTIFICATION_INFORMATION
+{
+    ULONG Flags;
+} FILE_IO_COMPLETION_NOTIFICATION_INFORMATION, *PFILE_IO_COMPLETION_NOTIFICATION_INFORMATION;
 
 typedef struct _FILE_LINK_INFORMATION
 {
@@ -1005,7 +1010,7 @@ typedef struct _EFI_DRIVER_ENTRY
 #ifdef NTOS_MODE_USER
 
 //
-// APC Callback for NtCreateFile
+// APC Callback for NtReadFile, NtWriteFile
 //
 typedef VOID
 (NTAPI *PIO_APC_ROUTINE)(

@@ -11,6 +11,7 @@ if(USE_DIBLIB)
 endif()
 
 add_subdirectory(gdi/gdi32)
+add_subdirectory(gdi/gdi32_vista)
 add_subdirectory(printing)
 add_subdirectory(reactx)
 add_subdirectory(user/user32)
@@ -72,9 +73,12 @@ list(APPEND SOURCE
     gdi/eng/ldevobj.c
     gdi/eng/mapping.c
     gdi/eng/math.c
+    gdi/eng/mdevobj.c
     gdi/eng/mem.c
     gdi/eng/engmisc.c
     gdi/eng/mouse.c
+    gdi/eng/multidisp.c
+    gdi/eng/pandisp.c
     gdi/eng/paint.c
     gdi/eng/pathobj.c
     gdi/eng/pdevobj.c
@@ -141,6 +145,7 @@ list(APPEND SOURCE
     user/ntuser/prop.c
     user/ntuser/scrollbar.c
     user/ntuser/scrollex.c
+    user/ntuser/security.c
     user/ntuser/session.c
     user/ntuser/shutdown.c
     user/ntuser/simplecall.c
@@ -213,6 +218,7 @@ list(APPEND ASM_SOURCE
     gdi/dib/i386/dib32bpp_hline.s
     gdi/dib/i386/dib32bpp_colorfill.s
     gdi/eng/i386/floatobj.S)
+list(APPEND SOURCE gdi/eng/i386/floatobj.c)
 else()
 list(APPEND SOURCE
     gdi/dib/dib24bppc.c
@@ -220,6 +226,7 @@ list(APPEND SOURCE
 endif()
 
 if(KDBG)
+    add_definitions(-DKDBG)
     list(APPEND SOURCE gdi/ntgdi/gdikdbgext.c)
 endif()
 

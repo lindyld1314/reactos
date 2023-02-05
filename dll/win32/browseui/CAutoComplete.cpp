@@ -1,7 +1,7 @@
 /*
  *    AutoComplete interfaces implementation.
  *
- *    Copyright 2004    Maxime Bellengé <maxime.bellenge@laposte.net>
+ *    Copyright 2004    Maxime BellengÃ© <maxime.bellenge@laposte.net>
  *    Copyright 2009  Andrew Hill
  *    Copyright 2020-2021 Katayama Hirofumi MZ <katayama.hirofumi.mz@gmail.com>
  *
@@ -21,25 +21,68 @@
  */
 
 #include "precomp.h"
+#include <process.h> // _beginthreadex
 
 /*
   TODO:
   - implement ACO_SEARCH style
   - implement ACO_FILTERPREFIXES style
-  - implement ACO_USETAB style
   - implement ACO_RTLREADING style
  */
 
 #define CX_LIST 30160 // width of m_hwndList (very wide but alright)
 #define CY_LIST 288 // maximum height of drop-down window
 #define CY_ITEM 18 // default height of listview item
-#define COMPLETION_TIMEOUT 250 // in milliseconds
 #define MAX_ITEM_COUNT 1000 // the maximum number of items
 #define WATCH_TIMER_ID 0xFEEDBEEF // timer ID to watch m_rcEdit
 #define WATCH_INTERVAL 300 // in milliseconds
 
 static HHOOK s_hMouseHook = NULL; // hook handle
 static HWND s_hWatchWnd = NULL; // the window handle to watch
+
+struct PREFIX_INFO
+{
+    LPCWSTR psz;
+    INT cch;
+};
+static const PREFIX_INFO s_prefixes[] =
+{
+    { L"https://", 8 },
+    { L"http://www.", 11 },
+    { L"http://", 7 },
+    { L"www.", 4 },
+};
+
+static BOOL DropPrefix(const CStringW& str, CStringW& strBody)
+{
+    for (size_t iPrefix = 0; iPrefix < _countof(s_prefixes); ++iPrefix)
+    {
+        LPCWSTR psz = s_prefixes[iPrefix].psz;
+        INT cch = s_prefixes[iPrefix].cch;
+        if (::StrCmpNIW(str, psz, cch) == 0)
+        {
+            strBody = str.Mid(cch);
+            return TRUE;
+        }
+    }
+    strBody = str;
+    return FALSE;
+}
+
+static BOOL DoesMatch(const CStringW& strTarget, const CStringW& strText)
+{
+    CStringW strBody;
+    if (DropPrefix(strTarget, strBody))
+    {
+        if (::StrCmpNIW(strBody, strText, strText.GetLength()) == 0)
+            return TRUE;
+    }
+    else if (::StrCmpNIW(strTarget, strText, strText.GetLength()) == 0)
+    {
+        return TRUE;
+    }
+    return FALSE;
+}
 
 // mouse hook procedure to watch the mouse click
 // https://docs.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms644988(v=vs.85)
@@ -81,33 +124,41 @@ static LRESULT CALLBACK MouseProc(INT nCode, WPARAM wParam, LPARAM lParam)
 
 typedef CSimpleArray<CStringW> list_t;
 
-static inline INT pivot(list_t& a, INT i, INT j)
+static inline INT compare1(const CStringW& str1, const CStringW& str2)
+{
+    CStringW s1, s2;
+    DropPrefix(str1, s1);
+    DropPrefix(str2, s2);
+    return s1.CompareNoCase(s2);
+}
+
+static inline INT pivot(list_t& list, INT i, INT j)
 {
     INT k = i + 1;
-    while (k <= j && a[i].CompareNoCase(a[k]) == 0)
+    while (k <= j && compare1(list[i], list[k]) == 0)
         k++;
     if (k > j)
         return -1;
-    if (a[i].CompareNoCase(a[k]) >= 0)
+    if (compare1(list[i], list[k]) >= 0)
         return i;
     return k;
- }
+}
 
-static inline INT partition(list_t& a, INT i, INT j, const CStringW& x)
+static inline INT partition(list_t& list, INT i, INT j, const CStringW& x)
 {
     INT left = i, right = j;
     while (left <= right)
     {
-        while (left <= j && a[left].CompareNoCase(x) < 0)
+        while (left <= j && compare1(list[left], x) < 0)
             left++;
-        while (right >= i && a[right].CompareNoCase(x) >= 0)
+        while (right >= i && compare1(list[right], x) >= 0)
             right--;
         if (left > right)
             break;
 
-        CStringW tmp = a[left];
-        a[left] = a[right];
-        a[right] = tmp;
+        CStringW tmp = list[left];
+        list[left] = list[right];
+        list[right] = tmp;
 
         left++;
         right--;
@@ -115,16 +166,16 @@ static inline INT partition(list_t& a, INT i, INT j, const CStringW& x)
     return left;
 }
 
-static void quicksort(list_t& a, INT i, INT j)
+static void quicksort(list_t& list, INT i, INT j)
 {
     if (i == j)
         return;
-    INT p = pivot(a, i, j);
+    INT p = pivot(list, i, j);
     if (p == -1)
         return;
-    INT k = partition(a, i, j, a[p]);
-    quicksort(a, i, k - 1);
-    quicksort(a, k, j);
+    INT k = partition(list, i, j, list[p]);
+    quicksort(list, i, k - 1);
+    quicksort(list, k, j);
 }
 
 static inline void DoSort(list_t& list)
@@ -143,7 +194,7 @@ static INT DoUnique(list_t& list)
     INT result = first;
     while (++first != last)
     {
-        if (list[result].CompareNoCase(list[first]) != 0)
+        if (compare1(list[result], list[first]) != 0)
             list[++result] = list[first];
     }
     return ++result;
@@ -159,7 +210,6 @@ static inline void DoUniqueAndTrim(list_t& list)
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// CACEditCtrl
 
 // range of WCHAR (inclusive)
 struct RANGE
@@ -218,176 +268,103 @@ EditWordBreakProcW(LPWSTR lpch, INT index, INT count, INT code)
     {
         case WB_ISDELIMITER:
             return IsWordBreak(lpch[index]);
-
         case WB_LEFT:
+        {
             if (index)
                 --index;
             while (index && !IsWordBreak(lpch[index]))
                 --index;
             return index;
-
+        }
         case WB_RIGHT:
+        {
             if (!count)
                 break;
             while (index < count && lpch[index] && !IsWordBreak(lpch[index]))
                 ++index;
             return index;
-
-        default:
-            break;
+        }
     }
     return 0;
 }
 
-CACEditCtrl::CACEditCtrl() : m_pDropDown(NULL), m_fnOldWordBreakProc(NULL)
+static LRESULT CALLBACK
+EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
+                 UINT_PTR uSubclassID, DWORD_PTR dwData)
 {
+    CAutoComplete *pThis = reinterpret_cast<CAutoComplete *>(dwData);
+    return pThis->EditWndProc(hwnd, uMsg, wParam, lParam);
 }
 
-VOID CACEditCtrl::HookWordBreakProc(BOOL bHook)
+LRESULT CAutoComplete::EditWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    if (bHook)
+    LRESULT ret;
+    HWND hwndGotFocus;
+    switch (uMsg)
     {
-        m_fnOldWordBreakProc = reinterpret_cast<EDITWORDBREAKPROCW>(
-            SendMessageW(EM_SETWORDBREAKPROC, 0,
-                reinterpret_cast<LPARAM>(EditWordBreakProcW)));
-    }
-    else
-    {
-        SendMessageW(EM_SETWORDBREAKPROC, 0,
-                     reinterpret_cast<LPARAM>(m_fnOldWordBreakProc));
-    }
-}
-
-// WM_CHAR
-// This message is posted to the window with the keyboard focus when WM_KEYDOWN is translated.
-LRESULT CACEditCtrl::OnChar(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnChar(%p, %p)\n", this, wParam);
-    ATLASSERT(m_pDropDown);
-    return m_pDropDown->OnEditChar(wParam, lParam);
-}
-
-// WM_CUT / WM_PASTE / WM_CLEAR @implemented
-LRESULT CACEditCtrl::OnCutPasteClear(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnCutPasteClear(%p)\n", this);
-    ATLASSERT(m_pDropDown);
-    LRESULT ret = DefWindowProcW(uMsg, wParam, lParam); // do default
-    m_pDropDown->OnEditUpdate(TRUE);
-    return ret;
-}
-
-// WM_DESTROY
-// This message is sent when a window is being destroyed.
-LRESULT CACEditCtrl::OnDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnDestroy(%p)\n", this);
-    ATLASSERT(m_pDropDown);
-    CAutoComplete *pDropDown = m_pDropDown;
-
-    // unhook word break procedure
-    HookWordBreakProc(FALSE);
-
-    // unsubclass because we don't watch any more
-    HWND hwndEdit = UnsubclassWindow();
-
-    // close the drop-down window
-    if (pDropDown)
-    {
-        pDropDown->PostMessageW(WM_CLOSE, 0, 0);
-    }
-
-    return ::DefWindowProcW(hwndEdit, uMsg, wParam, lParam); // do default
-}
-
-// WM_GETDLGCODE
-// By responding to this message, an application can take control of a particular type of
-// input and process the input itself.
-LRESULT CACEditCtrl::OnGetDlgCode(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnGetDlgCode(%p)\n", this);
-    ATLASSERT(m_pDropDown);
-
-    LRESULT ret = DefWindowProcW(uMsg, wParam, lParam); // get default
-
-    if (m_pDropDown)
-    {
-        // some special keys need default processing. we handle them here
-        switch (wParam)
-        {
-            case VK_RETURN:
-                if (m_pDropDown->IsWindowVisible() || ::GetKeyState(VK_CONTROL) < 0)
-                    m_pDropDown->OnEditKeyDown(VK_RETURN, 0);
-                break;
-            case VK_TAB:
-                if (m_pDropDown->IsWindowVisible() && m_pDropDown->UseTab())
-                    m_pDropDown->OnEditKeyDown(VK_TAB, 0);
-                break;
-            case VK_ESCAPE:
-                if (m_pDropDown->IsWindowVisible())
-                    ret |= DLGC_WANTALLKEYS; // we want all keys to manipulate the list
-                break;
-            default:
+        case WM_CHAR:
+            return OnEditChar(wParam, lParam);
+        case WM_CUT: case WM_PASTE: case WM_CLEAR:
+            ret = ::DefSubclassProc(hwnd, uMsg, wParam, lParam); // do default
+            StartCompletion(TRUE);
+            return ret;
+        case WM_GETDLGCODE:
+            ret = ::DefSubclassProc(hwnd, uMsg, wParam, lParam); // do default
+            // some special keys need default processing. we handle them here
+            switch (wParam)
             {
-                ret |= DLGC_WANTALLKEYS; // we want all keys to manipulate the list
-                break;
+                case VK_RETURN:
+                    if (IsWindowVisible() || ::GetKeyState(VK_CONTROL) < 0)
+                        OnEditKeyDown(VK_RETURN, 0);
+                    break;
+                case VK_TAB:
+                    if (IsWindowVisible() && UseTab())
+                        ret |= DLGC_WANTALLKEYS; // we want all keys to manipulate the list
+                    break;
+                case VK_ESCAPE:
+                    if (IsWindowVisible())
+                        ret |= DLGC_WANTALLKEYS; // we want all keys to manipulate the list
+                    break;
+                default:
+                {
+                    ret |= DLGC_WANTALLKEYS; // we want all keys to manipulate the list
+                    break;
+                }
             }
+            return ret;
+        case WM_KEYDOWN:
+            if (OnEditKeyDown(wParam, lParam))
+                return TRUE; // eat
+            break;
+        case WM_SETFOCUS:
+            break;
+        case WM_KILLFOCUS:
+            // hide the list if lost focus
+            hwndGotFocus = (HWND)wParam;
+            if (hwndGotFocus != m_hwndEdit && hwndGotFocus != m_hWnd)
+                HideDropDown();
+            break;
+        case WM_SETTEXT:
+            if (!m_bInSetText)
+                HideDropDown(); // it's mechanical WM_SETTEXT
+            break;
+        case WM_DESTROY:
+        {
+            if (m_fnOldWordBreakProc)
+            {
+                ::SendMessageW(hwnd, EM_SETWORDBREAKPROC, 0, reinterpret_cast<LPARAM>(m_fnOldWordBreakProc));
+                m_fnOldWordBreakProc = NULL;
+            }
+            ::RemoveWindowSubclass(hwnd, EditSubclassProc, 0);
+            if (::IsWindow(m_hWnd))
+                PostMessageW(WM_CLOSE, 0, 0);
+            // remove reference to m_hwndEdit
+            Release();
+            break;
         }
     }
 
-    return ret;
-}
-
-// WM_KEYDOWN
-// This message is posted to the window with the keyboard focus when a non-system key is pressed.
-LRESULT CACEditCtrl::OnKeyDown(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnKeyDown(%p, %p)\n", this, wParam);
-    ATLASSERT(m_pDropDown);
-    if (m_pDropDown->OnEditKeyDown(wParam, lParam))
-        return 1; // eat
-    bHandled = FALSE; // do default
-    return 0;
-}
-
-// WM_KILLFOCUS @implemented
-// This message is sent to a window immediately before it loses the keyboard focus.
-LRESULT CACEditCtrl::OnKillFocus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnKillFocus(%p)\n", this);
-    ATLASSERT(m_pDropDown);
-
-    // hide the list if lost focus
-    HWND hwndGotFocus = (HWND)wParam;
-    if (hwndGotFocus != m_hWnd && hwndGotFocus != m_pDropDown->m_hWnd)
-    {
-        m_pDropDown->HideDropDown();
-    }
-
-    bHandled = FALSE; // do default
-    return 0;
-}
-
-// WM_SETFOCUS
-// This message is sent to a window after it has gained the keyboard focus.
-LRESULT CACEditCtrl::OnSetFocus(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnSetFocus(%p)\n", this);
-    ATLASSERT(m_pDropDown);
-    bHandled = FALSE; // do default
-    return 0;
-}
-
-// WM_SETTEXT
-// An application sends this message to set the text of a window.
-LRESULT CACEditCtrl::OnSetText(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
-{
-    TRACE("CACEditCtrl::OnSetText(%p)\n", this);
-    ATLASSERT(m_pDropDown);
-    if (!m_pDropDown->m_bInSetText)
-        m_pDropDown->HideDropDown(); // it's mechanical WM_SETTEXT
-    bHandled = FALSE; // do default
-    return 0;
+    return ::DefSubclassProc(hwnd, uMsg, wParam, lParam); // do default
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -504,7 +481,7 @@ LRESULT CACListView::OnLButtonDown(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL
     if (iItem != -1)
     {
         m_pDropDown->SelectItem(iItem); // select the item
-        CString strText = GetItemText(iItem); // get text of item
+        CStringW strText = GetItemText(iItem); // get text of item
         m_pDropDown->SetEditText(strText); // set text
         m_pDropDown->SetEditSel(0, strText.GetLength()); // select all
         m_pDropDown->HideDropDown(); // hide
@@ -546,10 +523,6 @@ LRESULT CACListView::OnNCHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
 //////////////////////////////////////////////////////////////////////////////
 // CACScrollBar
 
-CACScrollBar::CACScrollBar() : m_pDropDown(NULL)
-{
-}
-
 HWND CACScrollBar::Create(HWND hwndParent)
 {
     ATLASSERT(m_hWnd == NULL);
@@ -563,10 +536,6 @@ HWND CACScrollBar::Create(HWND hwndParent)
 
 //////////////////////////////////////////////////////////////////////////////
 // CACSizeBox
-
-CACSizeBox::CACSizeBox() : m_pDropDown(NULL), m_bDowner(TRUE), m_bLongList(FALSE)
-{
-}
 
 HWND CACSizeBox::Create(HWND hwndParent)
 {
@@ -685,6 +654,8 @@ CAutoComplete::CAutoComplete()
     : m_bInSetText(FALSE), m_bInSelectItem(FALSE)
     , m_bDowner(TRUE), m_dwOptions(ACO_AUTOAPPEND | ACO_AUTOSUGGEST)
     , m_bEnabled(TRUE), m_hwndCombo(NULL), m_hFont(NULL), m_bResized(FALSE)
+    , m_hwndEdit(NULL), m_fnOldEditProc(NULL), m_fnOldWordBreakProc(NULL)
+    , m_hThread(NULL), m_pThread(NULL)
 {
 }
 
@@ -694,76 +665,85 @@ HWND CAutoComplete::CreateDropDown()
     DWORD dwStyle = WS_POPUP | /*WS_VISIBLE |*/ WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_BORDER;
     DWORD dwExStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOPARENTNOTIFY;
     Create(NULL, NULL, NULL, dwStyle, dwExStyle);
-    TRACE("CAutoComplete::CreateDropDown(%p): m_hWnd == %p\n", this, m_hWnd);
+    TRACE("CAutoComplete::CreateDropDown(%p): m_hWnd=%p, m_hwndEdit=%p\n",
+          this, m_hWnd, m_hwndEdit);
     return m_hWnd;
 }
 
 CAutoComplete::~CAutoComplete()
 {
     TRACE("CAutoComplete::~CAutoComplete(%p)\n", this);
+    if (m_hThread)
+    {
+        CloseHandle(m_hThread);
+        m_hThread = NULL;
+    }
     if (m_hFont)
     {
         ::DeleteObject(m_hFont);
         m_hFont = NULL;
     }
+    // quit holding them
+    m_pEnum.Release();
+    m_pACList.Release();
 }
 
-BOOL CAutoComplete::CanAutoSuggest()
+inline BOOL CAutoComplete::CanAutoSuggest() const
 {
     return !!(m_dwOptions & ACO_AUTOSUGGEST) && m_bEnabled;
 }
 
-BOOL CAutoComplete::CanAutoAppend()
+inline BOOL CAutoComplete::CanAutoAppend() const
 {
     return !!(m_dwOptions & ACO_AUTOAPPEND) && m_bEnabled;
 }
 
-BOOL CAutoComplete::UseTab()
+inline BOOL CAutoComplete::UseTab() const
 {
     return !!(m_dwOptions & ACO_USETAB) && m_bEnabled;
 }
 
-BOOL CAutoComplete::IsComboBoxDropped()
+inline BOOL CAutoComplete::IsComboBoxDropped() const
 {
     if (!::IsWindow(m_hwndCombo))
         return FALSE;
     return (BOOL)::SendMessageW(m_hwndCombo, CB_GETDROPPEDSTATE, 0, 0);
 }
 
-INT CAutoComplete::GetItemCount()
+inline BOOL CAutoComplete::FilterPrefixes() const
+{
+    return !!(m_dwOptions & ACO_FILTERPREFIXES) && m_bEnabled;
+}
+
+inline INT CAutoComplete::GetItemCount() const
 {
     return m_outerList.GetSize();
 }
 
-CStringW CAutoComplete::GetItemText(INT iItem)
+CStringW CAutoComplete::GetItemText(INT iItem) const
 {
     if (iItem < 0 || m_outerList.GetSize() <= iItem)
         return L"";
     return m_outerList[iItem];
 }
 
-CStringW CAutoComplete::GetEditText()
+inline CStringW CAutoComplete::GetEditText() const
 {
-    BSTR bstrText = NULL;
-    CStringW strText;
-    if (m_hwndEdit.GetWindowTextW(bstrText))
-    {
-        strText = bstrText;
-        ::SysFreeString(bstrText);
-    }
-    return strText;
+    WCHAR szText[L_MAX_URL_LENGTH];
+    if (::GetWindowTextW(m_hwndEdit, szText, _countof(szText)))
+        return szText;
+    return L"";
 }
 
 VOID CAutoComplete::SetEditText(LPCWSTR pszText)
 {
     m_bInSetText = TRUE; // don't hide drop-down
-    m_hwndEdit.SetWindowTextW(pszText);
+    ::CallWindowProcW(m_fnOldEditProc, m_hwndEdit, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(pszText));
     m_bInSetText = FALSE;
 }
 
-CStringW CAutoComplete::GetStemText()
+inline CStringW CAutoComplete::GetStemText(const CStringW& strText) const
 {
-    CStringW strText = GetEditText();
     INT ich = strText.ReverseFind(L'\\');
     if (ich == -1)
         return L""; // no stem
@@ -772,7 +752,7 @@ CStringW CAutoComplete::GetStemText()
 
 VOID CAutoComplete::SetEditSel(INT ich0, INT ich1)
 {
-    m_hwndEdit.SendMessageW(EM_SETSEL, ich0, ich1);
+    ::CallWindowProcW(m_fnOldEditProc, m_hwndEdit, EM_SETSEL, ich0, ich1);
 }
 
 VOID CAutoComplete::ShowDropDown()
@@ -803,7 +783,7 @@ VOID CAutoComplete::SelectItem(INT iItem)
         m_hwndList.EnsureVisible(iItem, FALSE);
 }
 
-VOID CAutoComplete::DoAutoAppend()
+VOID CAutoComplete::DoAutoAppend(PAC_THREAD pThread)
 {
     if (!CanAutoAppend()) // can we auto-append?
         return; // don't append
@@ -812,29 +792,58 @@ VOID CAutoComplete::DoAutoAppend()
     if (strText.IsEmpty())
         return; // don't append
 
-    INT cItems = m_innerList.GetSize(); // get the number of items
+    INT cItems = m_outerList.GetSize(); // get the number of items
     if (cItems == 0)
         return; // don't append
 
     // get the common string
     CStringW strCommon;
+    BOOL bFound = FALSE;
     for (INT iItem = 0; iItem < cItems; ++iItem)
     {
-        const CString& strItem = m_innerList[iItem]; // get the text of the item
+        const CStringW& strItem = m_outerList[iItem]; // get the text of the item
 
-        if (iItem == 0) // the first item
+        CStringW strBody;
+        if (DropPrefix(strItem, strBody) &&
+            ::StrCmpNIW(strBody, strText, strText.GetLength()) == 0)
         {
-            strCommon = strItem; // store the text
+            if (!bFound)
+            {
+                bFound = TRUE;
+                strCommon = strBody;
+                continue;
+            }
+            for (INT ich = 0; ich < strBody.GetLength(); ++ich)
+            {
+                if (strCommon.GetLength() <= ich)
+                    break;
+                if (ChrCmpIW(strCommon[ich], strBody[ich]) != 0)
+                {
+                    strCommon = strCommon.Left(ich);
+                    break;
+                }
+            }
             continue;
         }
 
-        for (INT ich = 0; ich < strCommon.GetLength(); ++ich)
+        if (::StrCmpNIW(strItem, strText, strText.GetLength()) == 0)
         {
-            if (ich < strItem.GetLength() &&
-                ::ChrCmpIW(strCommon[ich], strItem[ich]) != 0)
+            if (!bFound)
             {
-                strCommon = strCommon.Left(ich); // shrink the common string
-                break;
+                bFound = TRUE;
+                strCommon = strItem;
+                continue;
+            }
+
+            for (INT ich = 0; ich < strItem.GetLength(); ++ich)
+            {
+                if (strCommon.GetLength() <= ich)
+                    break;
+                if (ChrCmpIW(strCommon[ich], strItem[ich]) != 0)
+                {
+                    strCommon = strCommon.Left(ich);
+                    break;
+                }
             }
         }
     }
@@ -843,13 +852,10 @@ VOID CAutoComplete::DoAutoAppend()
         return; // no suggestion
 
     // append suggestion
-    INT cchOld = strText.GetLength();
-    INT cchAppend = strCommon.GetLength() - cchOld;
-    strText += strCommon.Right(cchAppend);
-    SetEditText(strText);
+    SetEditText(strCommon);
 
     // select the appended suggestion
-    SetEditSel(cchOld, strText.GetLength());
+    SetEditSel(strText.GetLength(), strCommon.GetLength());
 }
 
 // go back a word ([Ctrl]+[Backspace])
@@ -857,8 +863,8 @@ VOID CAutoComplete::DoBackWord()
 {
     // get current selection
     INT ich0, ich1;
-    m_hwndEdit.SendMessageW(EM_GETSEL, reinterpret_cast<WPARAM>(&ich0),
-                                       reinterpret_cast<LPARAM>(&ich1));
+    ::CallWindowProcW(m_fnOldEditProc, m_hwndEdit, EM_GETSEL,
+                      reinterpret_cast<WPARAM>(&ich0), reinterpret_cast<LPARAM>(&ich1));
     if (ich0 <= 0 || ich0 != ich1) // there is selection or left-side end
         return; // don't do anything
     // get text
@@ -871,7 +877,7 @@ VOID CAutoComplete::DoBackWord()
     // select range
     SetEditSel(ich0, ich1);
     // replace selection with empty text (this is actually deletion)
-    m_hwndEdit.SendMessageW(EM_REPLACESEL, TRUE, (LPARAM)L"");
+    ::CallWindowProcW(m_fnOldEditProc, m_hwndEdit, EM_REPLACESEL, TRUE, (LPARAM)L"");
 }
 
 VOID CAutoComplete::UpdateScrollBar()
@@ -897,7 +903,6 @@ BOOL CAutoComplete::OnEditKeyDown(WPARAM wParam, LPARAM lParam)
     UINT vk = (UINT)wParam; // virtual key
     switch (vk)
     {
-        case VK_HOME: case VK_END:
         case VK_UP: case VK_DOWN:
         case VK_PRIOR: case VK_NEXT:
             // is suggestion available?
@@ -941,7 +946,7 @@ BOOL CAutoComplete::OnEditKeyDown(WPARAM wParam, LPARAM lParam)
                 }
             }
             // select all
-            INT cch = m_hwndEdit.GetWindowTextLengthW();
+            INT cch = ::CallWindowProcW(m_fnOldEditProc, m_hwndEdit, WM_GETTEXTLENGTH, 0, 0);
             SetEditSel(0, cch);
             // hide
             HideDropDown();
@@ -949,9 +954,13 @@ BOOL CAutoComplete::OnEditKeyDown(WPARAM wParam, LPARAM lParam)
         }
         case VK_TAB:
         {
+            // ACO_USETAB
             if (IsWindowVisible() && UseTab())
             {
-                FIXME("ACO_USETAB\n");
+                if (GetKeyState(VK_SHIFT) < 0)
+                    return OnListUpDown(VK_UP);
+                else
+                    return OnListUpDown(VK_DOWN);
             }
             break;
         }
@@ -960,9 +969,8 @@ BOOL CAutoComplete::OnEditKeyDown(WPARAM wParam, LPARAM lParam)
             // is suggestion available?
             if (!CanAutoSuggest())
                 return FALSE; // do default
-            m_hwndEdit.DefWindowProcW(WM_KEYDOWN, VK_DELETE, 0); // do default
-            if (IsWindowVisible())
-                OnEditUpdate(FALSE);
+            ::DefSubclassProc(m_hwndEdit, WM_KEYDOWN, VK_DELETE, 0); // do default
+            StartCompletion(FALSE);
             return TRUE; // eat
         }
         case VK_BACK:
@@ -974,10 +982,6 @@ BOOL CAutoComplete::OnEditKeyDown(WPARAM wParam, LPARAM lParam)
             }
             break;
         }
-        default:
-        {
-            break;
-        }
     }
     return FALSE; // default
 }
@@ -987,21 +991,10 @@ LRESULT CAutoComplete::OnEditChar(WPARAM wParam, LPARAM lParam)
     TRACE("CACEditCtrl::OnEditChar(%p, %p)\n", this, wParam);
     if (wParam == L'\n' || wParam == L'\t')
         return 0; // eat
-    LRESULT ret = m_hwndEdit.DefWindowProcW(WM_CHAR, wParam, lParam); // do default
+    LRESULT ret = ::DefSubclassProc(m_hwndEdit, WM_CHAR, wParam, lParam); // do default
     if (CanAutoSuggest() || CanAutoAppend())
-        OnEditUpdate(wParam != VK_BACK);
+        StartCompletion(wParam != VK_BACK);
     return ret;
-}
-
-VOID CAutoComplete::OnEditUpdate(BOOL bAppendOK)
-{
-    CString strText = GetEditText();
-    if (m_strText.CompareNoCase(strText) == 0)
-    {
-        // no change
-        return;
-    }
-    UpdateCompletion(bAppendOK);
 }
 
 VOID CAutoComplete::OnListSelChange()
@@ -1032,9 +1025,6 @@ BOOL CAutoComplete::OnListUpDown(UINT vk)
     INT cItems = m_hwndList.GetItemCount(); // the number of items
     switch (vk)
     {
-        case VK_HOME: case VK_END:
-            m_hwndList.SendMessageW(WM_KEYDOWN, vk, 0);
-            break;
         case VK_UP:
             if (iItem == -1)
                 iItem = cItems - 1;
@@ -1103,7 +1093,7 @@ BOOL CAutoComplete::OnListUpDown(UINT vk)
 // @implemented
 STDMETHODIMP CAutoComplete::Enable(BOOL fEnable)
 {
-    TRACE("(%p)->(%d)\n", this, fEnable);
+    TRACE("(%p)->Enable(%d)\n", this, fEnable);
     m_bEnabled = fEnable;
     return S_OK;
 }
@@ -1112,52 +1102,36 @@ STDMETHODIMP
 CAutoComplete::Init(HWND hwndEdit, IUnknown *punkACL,
                     LPCOLESTR pwszRegKeyPath, LPCOLESTR pwszQuickComplete)
 {
-    TRACE("(%p)->(0x%08lx, %p, %s, %s)\n",
+    TRACE("(%p)->Init(0x%08lx, %p, %s, %s)\n",
           this, hwndEdit, punkACL, debugstr_w(pwszRegKeyPath), debugstr_w(pwszQuickComplete));
-
-    if (m_dwOptions & ACO_AUTOSUGGEST)
-        TRACE(" ACO_AUTOSUGGEST\n");
-    if (m_dwOptions & ACO_AUTOAPPEND)
-        TRACE(" ACO_AUTOAPPEND\n");
-    if (m_dwOptions & ACO_SEARCH)
-        FIXME(" ACO_SEARCH not supported\n");
-    if (m_dwOptions & ACO_FILTERPREFIXES)
-        FIXME(" ACO_FILTERPREFIXES not supported\n");
-    if (m_dwOptions & ACO_USETAB)
-        FIXME(" ACO_USETAB not supported\n");
-    if (m_dwOptions & ACO_UPDOWNKEYDROPSLIST)
-        TRACE(" ACO_UPDOWNKEYDROPSLIST\n");
-    if (m_dwOptions & ACO_RTLREADING)
-        FIXME(" ACO_RTLREADING not supported\n");
-
     // sanity check
     if (m_hwndEdit || !punkACL)
-    {
-        ATLASSERT(0);
+        return E_FAIL;
+    if (!hwndEdit)
         return E_INVALIDARG;
-    }
-
-    // set this pointer to m_hwndEdit
-    m_hwndEdit.m_pDropDown = this;
-
     // do subclass textbox to watch messages
-    m_hwndEdit.SubclassWindow(hwndEdit);
+    m_fnOldEditProc = reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(hwndEdit, GWLP_WNDPROC));
+    if (!m_fnOldEditProc)
+        return E_FAIL;
+    if (!::SetWindowSubclass(hwndEdit, EditSubclassProc, 0, reinterpret_cast<DWORD_PTR>(this)))
+        return E_FAIL;
+    m_hwndEdit = hwndEdit;
+    // add reference to m_hwndEdit
+    AddRef();
     // set word break procedure
-    m_hwndEdit.HookWordBreakProc(TRUE);
+    m_fnOldWordBreakProc = reinterpret_cast<EDITWORDBREAKPROCW>(
+        ::SendMessageW(m_hwndEdit, EM_SETWORDBREAKPROC, 0,
+                       reinterpret_cast<LPARAM>(EditWordBreakProcW)));
     // save position
-    m_hwndEdit.GetWindowRect(&m_rcEdit);
+    ::GetWindowRect(m_hwndEdit, &m_rcEdit);
 
     // get an IEnumString
-    ATLASSERT(!m_pEnum);
     punkACL->QueryInterface(IID_IEnumString, (VOID **)&m_pEnum);
     TRACE("m_pEnum: %p\n", static_cast<void *>(m_pEnum));
 
     // get an IACList
-    ATLASSERT(!m_pACList);
     punkACL->QueryInterface(IID_IACList, (VOID **)&m_pACList);
     TRACE("m_pACList: %p\n", static_cast<void *>(m_pACList));
-
-    AddRef(); // add reference
 
     UpdateDropDownState(); // create/hide the drop-down window if necessary
 
@@ -1200,6 +1174,14 @@ STDMETHODIMP CAutoComplete::SetOptions(DWORD dwFlag)
 {
     TRACE("(%p) -> (0x%x)\n", this, dwFlag);
     m_dwOptions = dwFlag;
+
+    if (m_dwOptions & ACO_SEARCH)
+        FIXME(" ACO_SEARCH not supported\n");
+    if (m_dwOptions & ACO_FILTERPREFIXES)
+        FIXME(" ACO_FILTERPREFIXES not supported\n");
+    if (m_dwOptions & ACO_RTLREADING)
+        FIXME(" ACO_RTLREADING not supported\n");
+
     UpdateDropDownState(); // create/hide the drop-down window if necessary
     return S_OK;
 }
@@ -1243,13 +1225,9 @@ STDMETHODIMP CAutoComplete::ResetEnumerator()
 {
     FIXME("(%p): stub\n", this);
 
-    HideDropDown();
-
-    if (IsWindowVisible())
-    {
-        OnEditUpdate(FALSE);
-    }
-
+    Reset();
+    m_hwndList.SendMessageW(LVM_SETITEMCOUNT, 0, 0);
+    m_outerList.RemoveAll();
     return S_OK;
 }
 
@@ -1310,11 +1288,7 @@ VOID CAutoComplete::UpdateDropDownState()
     {
         // create the drop-down window if not existed
         if (!m_hWnd)
-        {
-            AddRef();
-            if (!CreateDropDown())
-                Release();
-        }
+            CreateDropDown();
     }
     else
     {
@@ -1325,7 +1299,7 @@ VOID CAutoComplete::UpdateDropDownState()
 }
 
 // calculate the positions of the controls
-VOID CAutoComplete::CalcRects(BOOL bDowner, RECT& rcList, RECT& rcScrollBar, RECT& rcSizeBox)
+VOID CAutoComplete::CalcRects(BOOL bDowner, RECT& rcList, RECT& rcScrollBar, RECT& rcSizeBox) const
 {
     // get the client rectangle
     RECT rcClient;
@@ -1395,7 +1369,7 @@ VOID CAutoComplete::LoadQuickComplete(LPCWSTR pwszRegKeyPath, LPCWSTR pwszQuickC
     }
 }
 
-CStringW CAutoComplete::GetQuickEdit(LPCWSTR pszText)
+CStringW CAutoComplete::GetQuickEdit(LPCWSTR pszText) const
 {
     if (pszText[0] == 0 || m_strQuickComplete.IsEmpty())
         return pszText;
@@ -1429,7 +1403,7 @@ VOID CAutoComplete::RepositionDropDown()
 
     // get m_hwndEdit position
     RECT rcEdit;
-    m_hwndEdit.GetWindowRect(&rcEdit);
+    ::GetWindowRect(m_hwndEdit, &rcEdit);
     INT x = rcEdit.left, y = rcEdit.bottom;
 
     // get list extent
@@ -1485,148 +1459,59 @@ VOID CAutoComplete::RepositionDropDown()
     ShowWindow(SW_SHOWNOACTIVATE);
 }
 
-INT CAutoComplete::ReLoadInnerList()
+VOID
+CAutoComplete::ExtractInnerList(CSimpleArray<CStringW>& outerList,
+                                const CSimpleArray<CStringW>& innerList,
+                                const CString& strText)
 {
-    m_innerList.RemoveAll(); // clear contents
+    for (INT iItem = 0; iItem < innerList.GetSize(); ++iItem)
+    {
+        if (m_pThread || !m_hThread)
+            break;
 
-    if (!m_pEnum)
-        return 0;
+        const CStringW& strTarget = innerList[iItem];
+        if (DoesMatch(strTarget, strText))
+        {
+            outerList.Add(strTarget);
 
-    DWORD dwTick = ::GetTickCount(); // used for timeout
+            if (outerList.GetSize() >= MAX_ITEM_COUNT)
+                break;
+        }
+    }
+}
+
+VOID CAutoComplete::ReLoadInnerList(PAC_THREAD pThread)
+{
+    pThread->m_innerList.RemoveAll(); // clear contents
+
+    if (!m_pEnum || pThread->m_strText.IsEmpty())
+        return;
 
     // reload the items
     LPWSTR pszItem;
     ULONG cGot;
     HRESULT hr;
-    for (ULONG cTotal = 0; cTotal < MAX_ITEM_COUNT; ++cTotal)
+    CSimpleArray<CStringW>& innerList = pThread->m_innerList;
+    while (!m_pThread && m_hThread)
     {
         // get next item
         hr = m_pEnum->Next(1, &pszItem, &cGot);
-        //TRACE("m_pEnum->Next(%p): 0x%08lx\n", reinterpret_cast<IUnknown *>(m_pEnum), hr);
         if (hr != S_OK)
             break;
 
-        m_innerList.Add(pszItem); // append item to m_innerList
+        innerList.Add(pszItem); // append item to innerList
         ::CoTaskMemFree(pszItem); // free
-
-        // check the timeout
-        if (::GetTickCount() - dwTick >= COMPLETION_TIMEOUT)
-            break; // too late
     }
-
-    return m_innerList.GetSize(); // the number of items
 }
 
-// update inner list and m_strText and m_strStemText
-INT CAutoComplete::UpdateInnerList()
+VOID CAutoComplete::StartCompletion(BOOL bAppendOK)
 {
-    // get text
-    CStringW strText = GetEditText();
+    TRACE("CAutoComplete::StartCompletion(%p, %d)\n", this, bAppendOK);
 
-    BOOL bReset = FALSE, bExpand = FALSE; // flags
-
-    // if previous text was empty
-    if (m_strText.IsEmpty())
-    {
-        bReset = TRUE;
-    }
-    // save text
-    m_strText = strText;
-
-    // do expand the items if the stem is changed
-    CStringW strStemText = GetStemText();
-    if (m_strStemText.CompareNoCase(strStemText) != 0)
-    {
-        m_strStemText = strStemText;
-        bExpand = bReset = TRUE;
-    }
-
-    // reset if necessary
-    if (bReset && m_pEnum)
-    {
-        HRESULT hr = m_pEnum->Reset(); // IEnumString::Reset
-        TRACE("m_pEnum->Reset(%p): 0x%08lx\n",
-              static_cast<IUnknown *>(m_pEnum), hr);
-    }
-
-    // update ac list if necessary
-    if (bExpand && m_pACList)
-    {
-        HRESULT hr = m_pACList->Expand(strStemText); // IACList::Expand
-        TRACE("m_pACList->Expand(%p, %S): 0x%08lx\n",
-              static_cast<IUnknown *>(m_pACList),
-              static_cast<LPCWSTR>(strStemText), hr);
-    }
-
-    if (bExpand || m_innerList.GetSize() == 0)
-    {
-        // reload the inner list
-        ReLoadInnerList();
-    }
-
-    return m_innerList.GetSize();
-}
-
-INT CAutoComplete::UpdateOuterList()
-{
-    CStringW strText = GetEditText(); // get the text
-
-    // update the outer list from the inner list
-    m_outerList.RemoveAll();
-    for (INT iItem = 0; iItem < m_innerList.GetSize(); ++iItem)
-    {
-        // is the beginning matched?
-        const CStringW& strTarget = m_innerList[iItem];
-        if (::StrCmpNIW(strTarget, strText, strText.GetLength()) == 0)
-        {
-            m_outerList.Add(strTarget);
-        }
-    }
-
-    // sort the list
-    DoSort(m_outerList);
-    // unique
-    DoUniqueAndTrim(m_outerList);
-
-    // set the item count of the virtual listview
-    INT cItems = m_outerList.GetSize();
-    if (strText.IsEmpty())
-        cItems = 0;
-    m_hwndList.SendMessageW(LVM_SETITEMCOUNT, cItems, 0);
-
-    return cItems; // the number of items
-}
-
-VOID CAutoComplete::UpdateCompletion(BOOL bAppendOK)
-{
-    TRACE("CAutoComplete::UpdateCompletion(%p, %d)\n", this, bAppendOK);
-
-    // update inner list
-    UINT cItems = UpdateInnerList();
-    if (cItems == 0) // no items
-    {
-        HideDropDown();
+    if (!m_pEnum || (!CanAutoSuggest() && !CanAutoAppend()))
         return;
-    }
 
-    if (CanAutoSuggest()) // can we auto-suggest?
-    {
-        m_bInSelectItem = TRUE; // don't respond
-        SelectItem(-1); // select none
-        m_bInSelectItem = FALSE;
-
-        if (UpdateOuterList())
-            RepositionDropDown();
-        else
-            HideDropDown();
-        return;
-    }
-
-    if (CanAutoAppend() && bAppendOK) // can we auto-append?
-    {
-        DoAutoAppend();
-        return;
-    }
+    ::SendMessageW(m_hWnd, AUTOCOMP_START, bAppendOK, 0);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1664,28 +1549,21 @@ LRESULT CAutoComplete::OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &b
     m_hFont = reinterpret_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT));
     m_hwndList.SetFont(m_hFont);
 
+    // add reference so we won't be deleted during message processing
+    AddRef();
     return 0; // success
 }
 
-// WM_DESTROY
-// This message is sent when a window is being destroyed.
-LRESULT CAutoComplete::OnDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
+// WM_NCDESTROY
+LRESULT CAutoComplete::OnNCDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
-    TRACE("CAutoComplete::OnDestroy(%p)\n", this);
+    TRACE("CAutoComplete::OnNCDestroy(%p)\n", this);
 
     // hide
     if (IsWindowVisible())
         HideDropDown();
 
-    // unsubclass EDIT control
-    if (m_hwndEdit)
-    {
-        m_hwndEdit.HookWordBreakProc(FALSE);
-        m_hwndEdit.UnsubclassWindow();
-    }
-
     // clear CAutoComplete pointers
-    m_hwndEdit.m_pDropDown = NULL;
     m_hwndList.m_pDropDown = NULL;
     m_hwndScrollBar.m_pDropDown = NULL;
     m_hwndSizeBox.m_pDropDown = NULL;
@@ -1697,9 +1575,17 @@ LRESULT CAutoComplete::OnDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
 
     // clean up
     m_hwndCombo = NULL;
-    Release();
+
+    // Tell ATL to clean up
+    bHandled = 0;
 
     return 0;
+}
+
+VOID CAutoComplete::OnFinalMessage(HWND)
+{
+    // The message loop is finished, now we can safely destruct!
+    Release();
 }
 
 // WM_EXITSIZEMOVE
@@ -1714,7 +1600,7 @@ LRESULT CAutoComplete::OnExitSizeMove(UINT uMsg, WPARAM wParam, LPARAM lParam, B
     UINT uSWP_ = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE;
     SetWindowPos(NULL, 0, 0, 0, 0, uSWP_);
 
-    m_hwndEdit.SetFocus(); // restore focus
+    ::SetFocus(m_hwndEdit); // restore focus
     return 0;
 }
 
@@ -1948,8 +1834,6 @@ LRESULT CAutoComplete::OnNCHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL
 // This message is sent when the window size is changed.
 LRESULT CAutoComplete::OnSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
 {
-    TRACE("CAutoComplete::OnSize(%p)\n", this);
-
     // calculate the positions of the controls
     CRect rcList, rcScrollBar, rcSizeBox;
     CalcRects(m_bDowner, rcList, rcScrollBar, rcSizeBox);
@@ -1979,6 +1863,8 @@ LRESULT CAutoComplete::OnShowWindow(UINT uMsg, WPARAM wParam, LPARAM lParam, BOO
     BOOL bShow = (BOOL)wParam;
     if (bShow)
     {
+        if (s_hWatchWnd != m_hWnd && ::IsWindowVisible(s_hWatchWnd))
+            ::ShowWindowAsync(s_hWatchWnd, SW_HIDE);
         s_hWatchWnd = m_hWnd; // watch this
 
         // unhook mouse if any
@@ -2039,7 +1925,7 @@ LRESULT CAutoComplete::OnTimer(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bH
 
     // m_hwndEdit is moved?
     RECT rcEdit;
-    m_hwndEdit.GetWindowRect(&rcEdit);
+    ::GetWindowRect(m_hwndEdit, &rcEdit);
     if (!::EqualRect(&rcEdit, &m_rcEdit))
     {
         // if so, hide
@@ -2094,4 +1980,187 @@ LRESULT CAutoComplete::OnVScroll(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &
         }
     }
     return 0;
+}
+
+static inline PAC_THREAD
+InterlockedExchangeThreadData(volatile PAC_THREAD *Target, PAC_THREAD Value)
+{
+    return reinterpret_cast<PAC_THREAD>(
+        ::InterlockedExchangePointer(reinterpret_cast<volatile PVOID *>(Target), Value));
+}
+
+static unsigned __stdcall AutoCompThreadProc(void *arg)
+{
+    CAutoComplete* pThis = reinterpret_cast<CAutoComplete*>(arg);
+    pThis->AutoCompThreadProc();
+    return 0;
+}
+
+VOID CAutoComplete::AutoCompThreadProc()
+{
+    for (;;)
+    {
+        PAC_THREAD pThread = InterlockedExchangeThreadData(&m_pThread, NULL);
+        if (!pThread)
+            break;
+        DoThreadWork(pThread);
+    }
+}
+
+VOID CAutoComplete::DoThreadWork(PAC_THREAD pThread)
+{
+    if (pThread->m_bExpand || m_innerList.GetSize() == 0)
+    {
+        ReLoadInnerList(pThread);
+    }
+    else
+    {
+        pThread->m_innerList = m_innerList;
+    }
+
+    if (m_pThread || !m_hThread)
+    {
+        delete pThread;
+        return;
+    }
+
+    ExtractInnerList(pThread->m_outerList, pThread->m_innerList, pThread->m_strText);
+
+    if (m_pThread || !m_hThread)
+    {
+        delete pThread;
+        return;
+    }
+
+    DoSort(pThread->m_outerList);
+    DoUniqueAndTrim(pThread->m_outerList);
+
+    if (m_pThread || !m_hThread ||
+        !::PostMessageW(m_hWnd, AUTOCOMP_FINISH, 0, (LPARAM)pThread))
+    {
+        delete pThread;
+    }
+}
+
+// AUTOCOMP_START
+LRESULT CAutoComplete::OnAutoCompStart(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
+{
+    BOOL bAppendOK = (BOOL)wParam;
+
+    CStringW strText = GetEditText();
+    if (m_strText.CompareNoCase(strText) == 0)
+    {
+        // no change
+        return 0;
+    }
+
+    PAC_THREAD pThread = new AC_THREAD { this, bAppendOK, strText };
+
+    // if previous text was empty
+    if (m_strText.IsEmpty())
+    {
+        pThread->m_bReset = TRUE;
+    }
+    m_strText = strText;
+
+    // do expand the items if the stem is changed
+    CStringW strStemText = GetStemText(pThread->m_strText);
+    if (m_strStemText.CompareNoCase(strStemText) != 0)
+    {
+        pThread->m_bReset = TRUE;
+        pThread->m_bExpand = !strStemText.IsEmpty();
+        m_strStemText = strStemText;
+    }
+
+    // reset if necessary
+    if (pThread->m_bReset && m_pEnum)
+    {
+        HRESULT hr = m_pEnum->Reset(); // IEnumString::Reset
+        TRACE("m_pEnum->Reset(%p): 0x%08lx\n",
+              static_cast<IUnknown *>(m_pEnum), hr);
+    }
+
+    // update ac list if necessary
+    if (pThread->m_bExpand && m_pACList)
+    {
+        HRESULT hr = m_pACList->Expand(strStemText); // IACList::Expand
+        TRACE("m_pACList->Expand(%p, %S): 0x%08lx\n",
+              static_cast<IUnknown *>(m_pACList),
+              static_cast<LPCWSTR>(strStemText), hr);
+    }
+
+    PAC_THREAD pOld = InterlockedExchangeThreadData(&m_pThread, pThread);
+    if (pOld)
+        delete pOld;
+
+    BOOL bDoStart = FALSE;
+    if (m_hThread)
+    {
+        if (WaitForSingleObject(m_hThread, 0) != WAIT_TIMEOUT)
+        {
+            CloseHandle(m_hThread);
+            m_hThread = NULL;
+            bDoStart = TRUE;
+        }
+    }
+    else
+    {
+        bDoStart = TRUE;
+    }
+
+    if (bDoStart)
+        m_hThread = (HANDLE)_beginthreadex(NULL, 0, ::AutoCompThreadProc, this, 0, NULL);
+
+    return 0;
+}
+
+// AUTOCOMP_FINISH
+LRESULT CAutoComplete::OnAutoCompFinish(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL &bHandled)
+{
+    PAC_THREAD pThread = reinterpret_cast<PAC_THREAD>(lParam);
+    if (m_pThread == NULL)
+    {
+        FinishCompletion(pThread);
+    }
+    CloseHandle(m_hThread);
+    m_hThread = NULL;
+    delete pThread;
+    return 0;
+}
+
+VOID CAutoComplete::FinishCompletion(PAC_THREAD pThread)
+{
+    if (m_pThread || !m_hThread)
+        return;
+
+    if (!CanAutoSuggest() && !CanAutoAppend())
+        return;
+
+    // set inner list
+    m_innerList = pThread->m_innerList;
+
+    // set the items of the virtual listview
+    m_outerList = pThread->m_outerList; // FIXME: We need more speed!
+    m_hwndList.SendMessageW(LVM_SETITEMCOUNT, m_outerList.GetSize(), 0);
+
+    // save text
+    m_strText = pThread->m_strText;
+    m_strStemText = GetStemText(m_strText);
+
+    if (CanAutoSuggest()) // can we auto-suggest?
+    {
+        m_bInSelectItem = TRUE; // don't respond
+        SelectItem(-1); // select none
+        m_bInSelectItem = FALSE;
+
+        if (m_outerList.GetSize() > 0)
+            RepositionDropDown();
+        else
+            HideDropDown();
+    }
+
+    if (CanAutoAppend() && pThread->m_bAppendOK) // can we auto-append?
+    {
+        DoAutoAppend(pThread);
+    }
 }

@@ -263,7 +263,7 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
    ExStyle = pwnd->ExStyle;
    iconic = (Style & WS_MINIMIZE) != 0;
 
-   if ((Style & WS_MAXIMIZE) || !IntIsWindowVisible(pwnd)) return;
+   if (((Style & WS_MAXIMIZE) && syscommand != SC_MOVE) || !IntIsWindowVisible(pwnd)) return;
 
    thickframe = UserHasThickFrameStyle(Style, ExStyle) && !iconic;
 
@@ -418,7 +418,7 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
             UserSystemParametersInfo(SPI_GETWORKAREA, 0, &snapRect, 0);
 
             /* if this is the taskbar, then we want to just exit */
-            if (IsTaskBar)
+            if (IsTaskBar || !g_bWindowSnapEnabled)
             {
                break;
             }
@@ -438,12 +438,12 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
             if (doSideSnap)
             {
                co_WinPosSetWindowPos(pwnd,
-                                     0,
+                                     NULL,
                                      snapRect.left,
                                      snapRect.top,
                                      snapRect.right - snapRect.left,
                                      snapRect.bottom - snapRect.top,
-                                     0);
+                                     SWP_NOACTIVATE);
                pwnd->InternalPos.NormalRect = origRect;
             }
             else
@@ -511,7 +511,40 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
 	      RECT newRect = unmodRect;
 
 	      if (!iconic && !DragFullWindows) UserDrawMovingFrame( hdc, &sizingRect, thickframe );
-	      if (hittest == HTCAPTION) RECTL_vOffsetRect( &newRect, dx, dy );
+          if (hittest == HTCAPTION)
+          {
+              /* Restore window size if it is snapped */
+              if (!RECTL_bIsEmptyRect(&pwnd->InternalPos.NormalRect) &&
+                  !IntEqualRect(&pwnd->InternalPos.NormalRect, &pwnd->rcWindow))
+              {
+                  UserSetCursorPos(max(0, pwnd->InternalPos.NormalRect.left) + pt.x, pwnd->InternalPos.NormalRect.top + pt.y, 0, 0, FALSE);
+
+                  /* Save normal size - it required when window unsnapped from one side and snapped to another holding mouse down */
+                  origRect = pwnd->InternalPos.NormalRect;
+
+                  /* Restore from maximized state */
+                  if (Style & WS_MAXIMIZE)
+                  {
+                      co_IntSendMessage(UserHMGetHandle(pwnd), WM_SYSCOMMAND, SC_RESTORE, 0);
+                  }
+                  /* Restore snapped to left/right place */
+                  else
+                  {
+                      co_WinPosSetWindowPos(pwnd,
+                                            NULL,
+                                            pwnd->InternalPos.NormalRect.left,
+                                            pwnd->InternalPos.NormalRect.top,
+                                            pwnd->InternalPos.NormalRect.right - pwnd->InternalPos.NormalRect.left,
+                                            pwnd->InternalPos.NormalRect.bottom - pwnd->InternalPos.NormalRect.top,
+                                            0);
+                  }
+                  RECTL_vSetEmptyRect(&pwnd->InternalPos.NormalRect);
+                  continue;
+              }
+
+              /* regular window moving */
+              RECTL_vOffsetRect(&newRect, dx, dy);
+          }
 	      if (ON_LEFT_BORDER(hittest)) newRect.left += dx;
 	      else if (ON_RIGHT_BORDER(hittest)) newRect.right += dx;
 	      if (ON_TOP_BORDER(hittest)) newRect.top += dy;
@@ -551,13 +584,13 @@ DefWndDoSizeMove(PWND pwnd, WORD wParam)
 
                     //// This causes the mdi child window to jump up when it is moved.
                     //IntMapWindowPoints( 0, pWndParent, (POINT *)&rect, 2 );
-		    co_WinPosSetWindowPos( pwnd,
-		                           0,
-		                           newRect.left,
-		                           newRect.top,
-				           newRect.right - newRect.left,
-				           newRect.bottom - newRect.top,
-				          ( hittest == HTCAPTION ) ? SWP_NOSIZE : 0 );
+                    co_WinPosSetWindowPos(pwnd,
+                                          NULL,
+                                          newRect.left,
+                                          newRect.top,
+                                          newRect.right - newRect.left,
+                                          newRect.bottom - newRect.top,
+                                          SWP_NOACTIVATE | ((hittest == HTCAPTION) ? SWP_NOSIZE : 0));
 
                     hrgnNew = GreCreateRectRgnIndirect(&pwnd->rcWindow);
                     if (pwnd->hrgnClip != NULL)
@@ -1245,6 +1278,7 @@ NC_DoNCPaint(PWND pWnd, HDC hDC, INT Flags)
    return 0; // For WM_NCPAINT message, return 0.
 }
 
+/* Win: xxxCalcClientRect */
 LRESULT NC_HandleNCCalcSize( PWND Wnd, WPARAM wparam, RECTL *Rect, BOOL Suspended )
 {
    LRESULT Result = 0;
@@ -1532,7 +1566,8 @@ NC_HandleNCLButtonDown(PWND pWnd, WPARAM wParam, LPARAM lParam)
                 TopWnd = parent;
             }
 
-            if ( co_IntSetForegroundWindowMouse(TopWnd) ||
+            if ( (pWnd && (pWnd->ExStyle & WS_EX_NOACTIVATE)) ||
+                 co_IntSetForegroundWindowMouse(TopWnd) ||
                  //NtUserCallHwndLock(hTopWnd, HWNDLOCK_ROUTINE_SETFOREGROUNDWINDOWMOUSE) ||
                  UserGetActiveWindow() == UserHMGetHandle(TopWnd))
             {
@@ -1646,7 +1681,7 @@ NC_HandleNCLButtonDblClk(PWND pWnd, WPARAM wParam, LPARAM lParam)
       UserSystemParametersInfo(SPI_GETWORKAREA, 0, &mouseRect, 0);
         
       co_WinPosSetWindowPos(pWnd,
-                            0,
+                            NULL,
                             sizingRect.left,
                             mouseRect.top,
                             sizingRect.right - sizingRect.left,
@@ -1689,6 +1724,7 @@ LRESULT NC_HandleNCRButtonDown( PWND pwnd, WPARAM wParam, LPARAM lParam )
           if (UserHMGetHandle(pwnd) != IntGetCapture()) return 0;
       }
       IntReleaseCapture();
+
       if (hittest == HTCAPTION || hittest == HTSYSMENU || hittest == HTHSCROLL || hittest == HTVSCROLL)
       {
          TRACE("Msg pt %x and Msg.lParam %x and lParam %x\n",MAKELONG(msg.pt.x,msg.pt.y),msg.lParam,lParam);

@@ -2,6 +2,7 @@
 list(APPEND SOURCE
     AttachThreadInput.c
     ../include/msgtrace.c
+    CharFuncs.c
     CloseWindow.c
     CreateDialog.c
     CreateIconFromResourceEx.c
@@ -23,6 +24,8 @@ list(APPEND SOURCE
     GetUserObjectInformation.c
     GetWindowPlacement.c
     InitializeLpkHooks.c
+    KbdLayout.c
+    keybd_event.c
     LoadImage.c
     LookupIconIdFromDirectoryEx.c
     MessageStateAnalyzer.c
@@ -38,13 +41,16 @@ list(APPEND SOURCE
     SendMessageTimeout.c
     SetActiveWindow.c
     SetCursorPos.c
+    SetFocus.c
     SetParent.c
     SetProp.c
     SetScrollInfo.c
     SetScrollRange.c
+    ShowWindow.c
     SwitchToThisWindow.c
     SystemParametersInfo.c
     TrackMouseEvent.c
+    VirtualKey.c
     WndProc.c
     wsprintf.c)
 

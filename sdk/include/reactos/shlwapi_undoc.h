@@ -134,10 +134,14 @@ DWORD WINAPI SHGetValueGoodBootA(HKEY hkey, LPCSTR pSubKey, LPCSTR pValue,
                                  LPDWORD pwType, LPVOID pvData, LPDWORD pbData);
 DWORD WINAPI SHGetValueGoodBootW(HKEY hkey, LPCWSTR pSubKey, LPCWSTR pValue,
                                  LPDWORD pwType, LPVOID pvData, LPDWORD pbData);
+HRESULT WINAPI SHLoadRegUIStringA(HKEY hkey, LPCSTR value, LPSTR buf, DWORD size);
+HRESULT WINAPI SHLoadRegUIStringW(HKEY hkey, LPCWSTR value, LPWSTR buf, DWORD size);
 #ifdef UNICODE
 #define SHGetValueGoodBoot SHGetValueGoodBootW
+#define SHLoadRegUIString  SHLoadRegUIStringW
 #else
 #define SHGetValueGoodBoot SHGetValueGoodBootA
+#define SHLoadRegUIString  SHLoadRegUIStringA
 #endif
 
 int
@@ -149,6 +153,22 @@ ShellMessageBoxWrapW(
   _In_opt_ LPCWSTR lpcTitle,
   _In_ UINT fuStyle,
   ...);
+
+/* dwWhich flags for PathFileExistsDefExtW and PathFindOnPathExW */
+#define WHICH_PIF       (1 << 0)
+#define WHICH_COM       (1 << 1)
+#define WHICH_EXE       (1 << 2)
+#define WHICH_BAT       (1 << 3)
+#define WHICH_LNK       (1 << 4)
+#define WHICH_CMD       (1 << 5)
+#define WHICH_OPTIONAL  (1 << 6)
+
+#define WHICH_DEFAULT   (WHICH_PIF | WHICH_COM | WHICH_EXE | WHICH_BAT | WHICH_LNK | WHICH_CMD)
+
+BOOL WINAPI PathFileExistsDefExtW(LPWSTR lpszPath, DWORD dwWhich);
+BOOL WINAPI PathFindOnPathExW(LPWSTR lpszFile, LPCWSTR *lppszOtherDirs, DWORD dwWhich);
+VOID WINAPI FixSlashesAndColonW(LPWSTR);
+BOOL WINAPI PathIsValidCharW(WCHAR c, DWORD dwClass);
 
 #ifdef __cplusplus
 } /* extern "C" */

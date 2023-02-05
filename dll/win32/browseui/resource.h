@@ -109,6 +109,7 @@
 #define IDR_FINDFOLDER           147
 #define IDR_USERASSIST           148
 #define IDR_SHELLTASKSCHEDULER   149
+#define IDR_ACLHISTORY           150
 
 #define IDS_SMALLICONS           12301
 #define IDS_LARGEICONS           12302
@@ -124,6 +125,7 @@
 #define IDS_STANDARD_TOOLBAR     12624
 #define IDS_ADDRESSBANDLABEL     12902
 #define IDS_FOLDERSLABEL         12919
+#define IDS_ADDRESSMENUTEXT      13137
 #define IDS_HISTORYTEXT          13169
 #define IDS_UP                   58434
 #define IDS_BACK                 58689

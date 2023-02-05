@@ -23,7 +23,7 @@
 extern "C" {
 #endif /* defined(__cplusplus) */
 
-static inline ULONG
+inline ULONG
 Win32DbgPrint(const char *filename, int line, const char *lpFormat, ...)
 {
     char szMsg[512];
@@ -68,7 +68,18 @@ Win32DbgPrint(const char *filename, int line, const char *lpFormat, ...)
 #endif
 
 #if 1
-#define FAILED_UNEXPECTEDLY(hr) (FAILED(hr) && (Win32DbgPrint(__FILE__, __LINE__, "Unexpected failure %08x.\n", hr), TRUE))
+
+inline BOOL _ROS_FAILED_HELPER(HRESULT hr, const char* expr, const char* filename, int line)
+{
+    if (FAILED(hr))
+    {
+        Win32DbgPrint(filename, line, "Unexpected failure (%s)=%08x.\n", expr, hr);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+#define FAILED_UNEXPECTEDLY(hr) _ROS_FAILED_HELPER((hr), #hr, __FILE__, __LINE__)
 #else
 #define FAILED_UNEXPECTEDLY(hr) FAILED(hr)
 #endif
@@ -118,9 +129,8 @@ IUnknown *CComCreatorCentralInstance<T>::s_pInstance = NULL;
 #define DECLARE_CENTRAL_INSTANCE_NOT_AGGREGATABLE(x)                            \
 public:                                                                         \
     typedef CComCreatorCentralInstance< ATL::CComObject<x> > _CreatorClass;
-#endif
 
-#ifdef __cplusplus
+
 template <class Base>
 class CComDebugObject : public Base
 {
@@ -143,7 +153,7 @@ public:
     {
         int rc = this->InternalAddRef();
 #if DEBUG_CCOMOBJECT_REFCOUNTING
-        DbgPrint("%s, RefCount is now %d(--)! \n", __FUNCTION__, rc);
+        DbgPrint("%s, RefCount is now %d(--)!\n", __FUNCTION__, rc);
 #endif
         return rc;
     }
@@ -153,7 +163,7 @@ public:
         int rc = this->InternalRelease();
 
 #if DEBUG_CCOMOBJECT_REFCOUNTING
-        DbgPrint("%s, RefCount is now %d(--)! \n", __FUNCTION__, rc);
+        DbgPrint("%s, RefCount is now %d(--)!\n", __FUNCTION__, rc);
 #endif
 
         if (rc == 0)
@@ -215,7 +225,8 @@ void ReleaseCComPtrExpectZero(CComPtr<T>& cptr, BOOL forceRelease = FALSE)
 {
     if (cptr.p != NULL)
     {
-        int nrc = cptr->Release();
+        T *raw = cptr.Detach();
+        int nrc = raw->Release();
         if (nrc > 0)
         {
             DbgPrint("WARNING: Unexpected RefCount > 0 (%d)!\n", nrc);
@@ -223,11 +234,10 @@ void ReleaseCComPtrExpectZero(CComPtr<T>& cptr, BOOL forceRelease = FALSE)
             {
                 while (nrc > 0)
                 {
-                    nrc = cptr->Release();
+                    nrc = raw->Release();
                 }
             }
         }
-        cptr.Detach();
     }
 }
 
@@ -527,6 +537,22 @@ void DumpIdList(LPCITEMIDLIST pcidl)
     DbgPrint("End IDList Dump.\n");
 }
 
+struct CCoInit
+{
+    CCoInit()
+    {
+        hr = CoInitialize(NULL);
+    }
+    ~CCoInit()
+    {
+        if (SUCCEEDED(hr))
+        {
+            CoUninitialize();
+        }
+    }
+    HRESULT hr;
+};
+
 #endif /* __cplusplus */
 
 #define S_LESSTHAN 0xffff
@@ -544,6 +570,162 @@ static inline PCUIDLIST_RELATIVE HIDA_GetPIDLItem(CIDA const* pida, SIZE_T i)
 {
     return (PCUIDLIST_RELATIVE)(((LPBYTE)pida) + (pida)->aoffset[i + 1]);
 }
+
+
+#ifdef __cplusplus
+
+DECLSPEC_SELECTANY CLIPFORMAT g_cfHIDA = NULL;
+DECLSPEC_SELECTANY CLIPFORMAT g_cfShellIdListOffsets = NULL;
+
+// Allow to use the HIDA from an IDataObject without copying it
+struct CDataObjectHIDA
+{
+private:
+    STGMEDIUM m_medium;
+    CIDA* m_cida;
+    HRESULT m_hr;
+
+public:
+    explicit CDataObjectHIDA(IDataObject* pDataObject)
+        : m_cida(nullptr)
+    {
+        m_medium.tymed = TYMED_NULL;
+
+        if (g_cfHIDA == NULL)
+        {
+            g_cfHIDA = (CLIPFORMAT)RegisterClipboardFormatW(CFSTR_SHELLIDLISTW);
+        }
+        FORMATETC fmt = { g_cfHIDA, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+
+        m_hr = pDataObject->GetData(&fmt, &m_medium);
+        if (FAILED(m_hr))
+        {
+            m_medium.tymed = TYMED_NULL;
+            return;
+        }
+
+        m_cida = (CIDA*)::GlobalLock(m_medium.hGlobal);
+        if (m_cida == nullptr)
+        {
+            m_hr = E_UNEXPECTED;
+        }
+    }
+
+    ~CDataObjectHIDA()
+    {
+        if (m_cida)
+            ::GlobalUnlock(m_cida);
+
+        ReleaseStgMedium(&m_medium);
+    }
+
+    HRESULT hr() const
+    {
+        return m_hr;
+    }
+
+    operator bool() const
+    {
+        return m_cida != nullptr;
+    }
+
+    operator const CIDA* () const
+    {
+        return m_cida;
+    }
+
+    const CIDA* operator->() const
+    {
+        return m_cida;
+    }
+};
+
+inline
+HRESULT DataObject_GetData(IDataObject* pDataObject, CLIPFORMAT clipformat, PVOID pBuffer, SIZE_T dwBufferSize)
+{
+    FORMATETC fmt = { clipformat, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    STGMEDIUM medium = { TYMED_NULL };
+
+    HRESULT hr = pDataObject->GetData(&fmt, &medium);
+    if (SUCCEEDED(hr))
+    {
+        LPVOID blob = GlobalLock(medium.hGlobal);
+        if (blob)
+        {
+            SIZE_T size = GlobalSize(medium.hGlobal);
+            if (size <= dwBufferSize)
+            {
+                CopyMemory(pBuffer, blob, size);
+                hr = S_OK;
+            }
+            else
+            {
+                hr = E_OUTOFMEMORY;
+            }
+            GlobalUnlock(medium.hGlobal);
+        }
+        else
+        {
+            hr = STG_E_INVALIDHANDLE;
+        }
+
+        ReleaseStgMedium(&medium);
+    }
+    return hr;
+}
+
+inline
+HRESULT DataObject_SetData(IDataObject* pDataObject, CLIPFORMAT clipformat, PVOID pBuffer, SIZE_T dwBufferSize)
+{
+    STGMEDIUM medium = { TYMED_HGLOBAL };
+
+    medium.hGlobal = GlobalAlloc(GHND, dwBufferSize);
+    if (!medium.hGlobal)
+        return E_OUTOFMEMORY;
+
+    HRESULT hr = E_UNEXPECTED;
+    LPVOID blob = GlobalLock(medium.hGlobal);
+    if (blob)
+    {
+        CopyMemory(blob, pBuffer, dwBufferSize);
+        GlobalUnlock(medium.hGlobal);
+
+        FORMATETC etc = { clipformat, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        hr = pDataObject->SetData(&etc, &medium, TRUE);
+    }
+
+    if (FAILED(hr))
+        GlobalFree(medium.hGlobal);
+
+    return hr;
+}
+
+
+inline HRESULT
+DataObject_GetOffset(IDataObject *pDataObject, POINT *point)
+{
+    if (g_cfShellIdListOffsets == NULL)
+    {
+        g_cfShellIdListOffsets = (CLIPFORMAT)RegisterClipboardFormatW(CFSTR_SHELLIDLISTOFFSETW);
+    }
+
+    point->x = point->y = 0;
+
+    return DataObject_GetData(pDataObject, g_cfShellIdListOffsets, point, sizeof(point[0]));
+}
+
+inline HRESULT
+DataObject_SetOffset(IDataObject* pDataObject, POINT* point)
+{
+    if (g_cfShellIdListOffsets == NULL)
+    {
+        g_cfShellIdListOffsets = (CLIPFORMAT)RegisterClipboardFormatW(CFSTR_SHELLIDLISTOFFSETW);
+    }
+
+    return DataObject_SetData(pDataObject, g_cfShellIdListOffsets, point, sizeof(point[0]));
+}
+
+#endif
 
 
 #endif /* __ROS_SHELL_UTILS_H */

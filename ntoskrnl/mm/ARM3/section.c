@@ -135,24 +135,6 @@ MiIsProtectionCompatible(IN ULONG SectionPageProtection,
     return ((CompatibleMask | NewSectionPageProtection) == CompatibleMask);
 }
 
-ACCESS_MASK
-NTAPI
-MiArm3GetCorrectFileAccessMask(IN ACCESS_MASK SectionPageProtection)
-{
-    ULONG ProtectionMask;
-
-    /* Calculate the protection mask and make sure it's valid */
-    ProtectionMask = MiMakeProtectionMask(SectionPageProtection);
-    if (ProtectionMask == MM_INVALID_PROTECTION)
-    {
-        DPRINT1("Invalid protection mask\n");
-        return STATUS_INVALID_PAGE_PROTECTION;
-    }
-
-    /* Now convert it to the required file access */
-    return MmMakeFileAccess[ProtectionMask & 0x7];
-}
-
 ULONG
 NTAPI
 MiMakeProtectionMask(IN ULONG Protect)
@@ -915,6 +897,7 @@ MiUnmapViewOfSection(IN PEPROCESS Process,
     /* Remove the VAD */
     ASSERT(Process->VadRoot.NumberGenericTableElements >= 1);
     MiRemoveNode((PMMADDRESS_NODE)Vad, &Process->VadRoot);
+    PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
 
     /* Remove the PTEs for this view, which also releases the working set lock */
     MiRemoveMappedView(Process, Vad);
@@ -1326,25 +1309,26 @@ MiMapViewOfDataSection(IN PCONTROL_AREA ControlArea,
     /* Check if the caller specified the view size */
     if (!(*ViewSize))
     {
+        LONGLONG ViewSizeLL;
+
         /* The caller did not, so pick a 64K aligned view size based on the offset */
         SectionOffset->LowPart &= ~(_64K - 1);
 
-        /* Make sure that we will not overflow */
-        if ((Section->SizeOfSection.QuadPart - SectionOffset->QuadPart) > MAXLONG_PTR)
+        /* Calculate size and make sure this fits */
+        if (!NT_SUCCESS(RtlLongLongSub(Section->SizeOfSection.QuadPart, SectionOffset->QuadPart, &ViewSizeLL))
+            || !NT_SUCCESS(RtlLongLongToSIZET(ViewSizeLL, ViewSize))
+            || (*ViewSize > MAXLONG_PTR))
         {
             MiDereferenceControlArea(ControlArea);
             return STATUS_INVALID_VIEW_SIZE;
         }
-
-        *ViewSize = (SIZE_T)(Section->SizeOfSection.QuadPart - SectionOffset->QuadPart);
     }
     else
     {
-        /* A size was specified, align it to a 64K boundary */
-        *ViewSize += SectionOffset->LowPart & (_64K - 1);
-
-        /* Check for overflow or huge value */
-        if ((*ViewSize < (SectionOffset->LowPart & (_64K - 1))) || ((*ViewSize) > MAXLONG_PTR))
+        /* A size was specified, align it to a 64K boundary
+         * and check for overflow or huge value. */
+        if (!NT_SUCCESS(RtlSIZETAdd(*ViewSize, SectionOffset->LowPart & (_64K - 1), ViewSize))
+            || (*ViewSize > MAXLONG_PTR))
         {
             MiDereferenceControlArea(ControlArea);
             return STATUS_INVALID_VIEW_SIZE;
@@ -1488,6 +1472,18 @@ MiMapViewOfDataSection(IN PCONTROL_AREA ControlArea,
         StartAddress = 0;
     }
 
+    Status = PsChargeProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
+    if (!NT_SUCCESS(Status))
+    {
+        ExFreePoolWithTag(Vad, 'ldaV');
+        MiDereferenceControlArea(ControlArea);
+
+        KeAcquireGuardedMutex(&MmSectionCommitMutex);
+        Segment->NumberOfCommittedPages -= QuotaCharge;
+        KeReleaseGuardedMutex(&MmSectionCommitMutex);
+        return Status;
+    }
+
     /* Insert the VAD */
     Status = MiInsertVadEx((PMMVAD)Vad,
                            &StartAddress,
@@ -1497,6 +1493,14 @@ MiMapViewOfDataSection(IN PCONTROL_AREA ControlArea,
                            AllocationType);
     if (!NT_SUCCESS(Status))
     {
+        ExFreePoolWithTag(Vad, 'ldaV');
+        MiDereferenceControlArea(ControlArea);
+
+        KeAcquireGuardedMutex(&MmSectionCommitMutex);
+        Segment->NumberOfCommittedPages -= QuotaCharge;
+        KeReleaseGuardedMutex(&MmSectionCommitMutex);
+
+        PsReturnProcessNonPagedPoolQuota(PsGetCurrentProcess(), sizeof(MMVAD_LONG));
         return Status;
     }
 
@@ -1926,11 +1930,13 @@ MmGetFileNameForAddress(IN PVOID Address,
     if (NT_SUCCESS(Status))
     {
         /* Init modulename */
-        RtlCreateUnicodeString(ModuleName, ModuleNameInformation->Name.Buffer);
+        if (!RtlCreateUnicodeString(ModuleName, ModuleNameInformation->Name.Buffer))
+            Status = STATUS_INSUFFICIENT_RESOURCES;
 
         /* Free temp taged buffer from MmGetFileNameForFileObject() */
         ExFreePoolWithTag(ModuleNameInformation, TAG_MM);
-        DPRINT("Found ModuleName %S by address %p\n", ModuleName->Buffer, Address);
+
+        DPRINT("Found ModuleName %wZ by address %p\n", ModuleName, Address);
     }
 
    /* Return status */
@@ -2497,11 +2503,16 @@ MmCreateArm3Section(OUT PVOID *SectionObject,
              (SectionPageProtection & PAGE_NOACCESS)));
 
     /* Convert section flag to page flag */
-    if (AllocationAttributes & SEC_NOCACHE) SectionPageProtection |= PAGE_NOCACHE;
+    if (AllocationAttributes & SEC_NOCACHE)
+        SectionPageProtection |= PAGE_NOCACHE;
 
     /* Check to make sure the protection is correct. Nt* does this already */
     ProtectionMask = MiMakeProtectionMask(SectionPageProtection);
-    if (ProtectionMask == MM_INVALID_PROTECTION) return STATUS_INVALID_PAGE_PROTECTION;
+    if (ProtectionMask == MM_INVALID_PROTECTION)
+    {
+        DPRINT1("Invalid protection mask\n");
+        return STATUS_INVALID_PAGE_PROTECTION;
+    }
 
     /* Check if this is going to be a data or image backed file section */
     if ((FileHandle) || (FileObject))
@@ -3340,7 +3351,7 @@ ULONG
 NTAPI
 MmDoesFileHaveUserWritableReferences(IN PSECTION_OBJECT_POINTERS SectionPointer)
 {
-    UNIMPLEMENTED;
+    UNIMPLEMENTED_ONCE;
     return 0;
 }
 

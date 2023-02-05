@@ -121,7 +121,8 @@ CreateShortcut(
     LPCWSTR pszCommand,
     LPCWSTR pszDescription,
     INT iIconNr,
-    LPCWSTR pszWorkingDir)
+    LPCWSTR pszWorkingDir,
+    LPCWSTR pszArgs)
 {
     DWORD dwLen;
     LPWSTR Ptr;
@@ -170,7 +171,7 @@ CreateShortcut(
     /* Create the shortcut */
     return SUCCEEDED(CreateShellLink(szPath,
                                      pszCommand,
-                                     L"",
+                                     pszArgs,
                                      pszWorkingDir,
                                      /* Special value to indicate no icon */
                                      (iIconNr != -1 ? pszCommand : NULL),
@@ -188,6 +189,7 @@ static BOOL CreateShortcutsFromSection(HINF hinf, LPWSTR pszSection, LPCWSTR psz
     WCHAR szName[MAX_PATH];
     WCHAR szDescription[MAX_PATH];
     WCHAR szDirectory[MAX_PATH];
+    WCHAR szArgs[MAX_PATH];
 
     if (!SetupFindFirstLine(hinf, pszSection, NULL, &Context))
         return FALSE;
@@ -213,9 +215,12 @@ static BOOL CreateShortcutsFromSection(HINF hinf, LPWSTR pszSection, LPCWSTR psz
         if (dwFieldCount < 5 || !SetupGetStringFieldW(&Context, 5, szDirectory, ARRAYSIZE(szDirectory), NULL))
             szDirectory[0] = L'\0';
 
+        if (dwFieldCount < 6 || !SetupGetStringFieldW(&Context, 6, szArgs, ARRAYSIZE(szArgs), NULL))
+            szArgs[0] = L'\0';
+
         wcscat(szName, L".lnk");
 
-        CreateShortcut(pszFolder, szName, szCommand, szDescription, iIconNr, szDirectory);
+        CreateShortcut(pszFolder, szName, szCommand, szDescription, iIconNr, szDirectory, szArgs);
 
     } while (SetupFindNextLine(&Context, &Context));
 
@@ -375,7 +380,7 @@ InstallSysSetupInfComponents(VOID)
                                       ARRAYSIZE(szNameBuffer),
                                       NULL))
             {
-                FatalError("Error while trying to get component name \n");
+                FatalError("Error while trying to get component name\n");
                 return FALSE;
             }
 
@@ -385,11 +390,11 @@ InstallSysSetupInfComponents(VOID)
                                       ARRAYSIZE(szSectionBuffer),
                                       NULL))
             {
-                FatalError("Error while trying to get component install section \n");
+                FatalError("Error while trying to get component install section\n");
                 return FALSE;
             }
 
-            DPRINT("Trying to execute install section '%S' from '%S' \n", szSectionBuffer, szNameBuffer);
+            DPRINT("Trying to execute install section '%S' from '%S'\n", szSectionBuffer, szNameBuffer);
 
             hComponentInf = SetupOpenInfFileW(szNameBuffer,
                                               NULL,
@@ -467,7 +472,7 @@ RegisterTypeLibraries(HINF hinf, LPCWSTR szSection)
         p = PathAddBackslash(szPath);
         wcscpy(p, szName);
 
-        hmod = LoadLibraryW(szName);
+        hmod = LoadLibraryW(szPath);
         if (hmod == NULL)
         {
             FatalError("LoadLibraryW failed\n");
@@ -486,7 +491,9 @@ EnableUserModePnpManager(VOID)
 {
     SC_HANDLE hSCManager = NULL;
     SC_HANDLE hService = NULL;
+    SERVICE_STATUS_PROCESS ServiceStatus;
     BOOL bRet = FALSE;
+    DWORD BytesNeeded, WaitTime;
 
     hSCManager = OpenSCManagerW(NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE);
     if (hSCManager == NULL)
@@ -498,7 +505,7 @@ EnableUserModePnpManager(VOID)
 
     hService = OpenServiceW(hSCManager,
                             L"PlugPlay",
-                            SERVICE_CHANGE_CONFIG | SERVICE_START);
+                            SERVICE_CHANGE_CONFIG | SERVICE_START | SERVICE_QUERY_STATUS);
     if (hService == NULL)
     {
         DPRINT1("Unable to open PlugPlay service\n");
@@ -524,6 +531,35 @@ EnableUserModePnpManager(VOID)
         goto cleanup;
     }
 
+    while (TRUE)
+    {
+        bRet = QueryServiceStatusEx(hService,
+                                    SC_STATUS_PROCESS_INFO,
+                                    (LPBYTE)&ServiceStatus,
+                                    sizeof(ServiceStatus),
+                                    &BytesNeeded);
+        if (!bRet)
+        {
+            DPRINT1("QueryServiceStatusEx() failed for PlugPlay service (error 0x%x)\n", GetLastError());
+            goto cleanup;
+        }
+
+        if (ServiceStatus.dwCurrentState != SERVICE_START_PENDING)
+            break;
+
+        WaitTime = ServiceStatus.dwWaitHint / 10;
+        if (WaitTime < 1000) WaitTime = 1000;
+        else if (WaitTime > 10000) WaitTime = 10000;
+        Sleep(WaitTime);
+    };
+
+    if (ServiceStatus.dwCurrentState != SERVICE_RUNNING)
+    {
+        bRet = FALSE;
+        DPRINT1("Failed to start PlugPlay service\n");
+        goto cleanup;
+    }
+
     bRet = TRUE;
 
 cleanup:
@@ -532,6 +568,70 @@ cleanup:
     if (hSCManager != NULL)
         CloseServiceHandle(hSCManager);
     return bRet;
+}
+
+static VOID
+AdjustStatusMessageWindow(HWND hwndDlg, PDLG_DATA pDlgData)
+{
+    INT xOld, yOld, cxOld, cyOld;
+    INT xNew, yNew, cxNew, cyNew;
+    INT cxLabel, cyLabel, dyLabel;
+    RECT rc, rcBar, rcLabel, rcWnd;
+    BITMAP bmLogo, bmBar;
+    DWORD style, exstyle;
+    HWND hwndLogo = GetDlgItem(hwndDlg, IDC_ROSLOGO);
+    HWND hwndBar = GetDlgItem(hwndDlg, IDC_BAR);
+    HWND hwndLabel = GetDlgItem(hwndDlg, IDC_STATUSLABEL);
+
+    /* This adjustment is for CJK only */
+    switch (PRIMARYLANGID(GetUserDefaultLangID()))
+    {
+        case LANG_CHINESE:
+        case LANG_JAPANESE:
+        case LANG_KOREAN:
+            break;
+
+        default:
+            return;
+    }
+
+    if (!GetObjectW(pDlgData->hLogoBitmap, sizeof(BITMAP), &bmLogo) ||
+        !GetObjectW(pDlgData->hBarBitmap, sizeof(BITMAP), &bmBar))
+    {
+        return;
+    }
+
+    GetWindowRect(hwndBar, &rcBar);
+    MapWindowPoints(NULL, hwndDlg, (LPPOINT)&rcBar, 2);
+    dyLabel = bmLogo.bmHeight - rcBar.top;
+
+    GetWindowRect(hwndLabel, &rcLabel);
+    MapWindowPoints(NULL, hwndDlg, (LPPOINT)&rcLabel, 2);
+    cxLabel = rcLabel.right - rcLabel.left;
+    cyLabel = rcLabel.bottom - rcLabel.top;
+
+    MoveWindow(hwndLogo, 0, 0, bmLogo.bmWidth, bmLogo.bmHeight, TRUE);
+    MoveWindow(hwndBar, 0, bmLogo.bmHeight, bmLogo.bmWidth, bmBar.bmHeight, TRUE);
+    MoveWindow(hwndLabel, rcLabel.left, rcLabel.top + dyLabel, cxLabel, cyLabel, TRUE);
+
+    GetWindowRect(hwndDlg, &rcWnd);
+    xOld = rcWnd.left;
+    yOld = rcWnd.top;
+    cxOld = rcWnd.right - rcWnd.left;
+    cyOld = rcWnd.bottom - rcWnd.top;
+
+    GetClientRect(hwndDlg, &rc);
+    SetRect(&rc, 0, 0, bmLogo.bmWidth, rc.bottom - rc.top); /* new client size */
+
+    style = (DWORD)GetWindowLongPtrW(hwndDlg, GWL_STYLE);
+    exstyle = (DWORD)GetWindowLongPtrW(hwndDlg, GWL_EXSTYLE);
+    AdjustWindowRectEx(&rc, style, FALSE, exstyle);
+
+    cxNew = rc.right - rc.left;
+    cyNew = (rc.bottom - rc.top) + dyLabel;
+    xNew = xOld - (cxNew - cxOld) / 2;
+    yNew = yOld - (cyNew - cyOld) / 2;
+    MoveWindow(hwndDlg, xNew, yNew, cxNew, cyNew, TRUE);
 }
 
 static INT_PTR CALLBACK
@@ -591,6 +691,7 @@ StatusMessageWindowProc(
                 return FALSE;
             SetDlgItemTextW(hwndDlg, IDC_STATUSLABEL, szMsg);
 
+            AdjustStatusMessageWindow(hwndDlg, pDlgData);
             return TRUE;
         }
 

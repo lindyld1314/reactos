@@ -65,7 +65,7 @@ STRINGTABLE
     PD32_OUT_OF_MEMORY                    "Мало памяти."
     PD32_GENERIC_ERROR                    "Произошла ошибка."
     PD32_DRIVER_UNKNOWN                   "Неизвестный драйвер принтера."
-    PD32_NO_DEVICES                       "Перед тем как настраивать страницу печати или печатать документ нужно установить принтеры. Пожалуйста установите его и попробуйте еще раз."
+    PD32_NO_DEVICES                       "Перед тем как настраивать страницу печати или печатать документ нужно установить принтеры. Пожалуйста установите его и попробуйте ещё раз."
 
     PD32_DEFAULT_PRINTER                  "Принтер по умолчанию; "
     PD32_NR_OF_DOCUMENTS_IN_QUEUE         "Документов в очереди: %d"
@@ -369,7 +369,7 @@ FONT 8, "MS Shell Dlg"
 
     GROUPBOX        "Копии",         grp2, 160, 92, 120,64, WS_GROUP
     LTEXT           "Число &копий:",stc5,168,105,68,8
-    ICON            "",               ico3, 170,131,  76,24, WS_GROUP | SS_CENTERIMAGE
+    ICON            "",               ico3, 210,131,  76,24, WS_GROUP
     CONTROL         "&Разобрать по копиям",       chx2,"Button",BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,168,118,100,12
     EDITTEXT                          edt3, 240,103,  32,12, WS_GROUP | ES_NUMBER
 

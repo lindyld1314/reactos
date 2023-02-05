@@ -308,7 +308,7 @@ static VOID NOTEPAD_InitMenuPopup(HMENU menu, LPARAM index)
 }
 
 LRESULT CALLBACK EDIT_WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{ 
+{
     switch (msg)
     {
         case WM_KEYDOWN:
@@ -427,8 +427,13 @@ NOTEPAD_WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                                   LOWORD(wParam),
                                   SWP_NOZORDER);
 
-            if (hdwp != NULL)
-                EndDeferWindowPos(hdwp);
+            if (hdwp == NULL)
+                break;
+                
+            EndDeferWindowPos(hdwp);
+
+            /* Align status bar parts, only if the status bar resize operation succeeds */
+            DIALOG_StatusBarAlignParts();
         }
         else
             SetWindowPos(Globals.hEdit,

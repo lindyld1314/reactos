@@ -440,8 +440,9 @@ BOOL WINAPI PathYetAnotherMakeUniqueName(
     LPCWSTR lpszShortName,
     LPCWSTR lpszLongName);
 
-BOOL  WINAPI PathQualifyAW(LPCVOID path);
-
+VOID WINAPI PathQualifyA(LPSTR pszPath);
+VOID WINAPI PathQualifyW(LPWSTR pszPath);
+VOID WINAPI PathQualifyAW(LPVOID path);
 
 /* PathResolve flags */
 #define PRF_CHECKEXISTANCE  0x01
@@ -449,6 +450,8 @@ BOOL  WINAPI PathQualifyAW(LPCVOID path);
 #define PRF_QUALIFYONPATH   0x04
 #define PRF_WINDOWS31       0x08
 
+BOOL WINAPI PathResolveA(LPSTR path, LPCSTR *dirs, DWORD flags);
+BOOL WINAPI PathResolveW(LPWSTR path, LPCWSTR *dirs, DWORD flags);
 BOOL WINAPI PathResolveAW(LPVOID lpszPath, LPCVOID *alpszPaths, DWORD dwFlags);
 
 VOID WINAPI PathSetDlgItemPathAW(HWND hDlg, int nIDDlgItem, LPCVOID lpszPath);
@@ -717,6 +720,26 @@ DWORD WINAPI WinList_Init(void);
 IStream* WINAPI SHGetViewStream(LPCITEMIDLIST, DWORD, LPCTSTR, LPCTSTR, LPCTSTR);
 
 EXTERN_C HRESULT WINAPI SHCreateSessionKey(REGSAM samDesired, PHKEY phKey);
+
+LONG WINAPI SHRegQueryValueExA(
+    HKEY hkey,
+    LPCSTR lpValueName,
+    LPDWORD lpReserved,
+    LPDWORD lpType,
+    LPBYTE lpData,
+    LPDWORD lpcbData);
+LONG WINAPI SHRegQueryValueExW(
+    HKEY hkey,
+    LPCWSTR pszValue,
+    LPDWORD pdwReserved,
+    LPDWORD pdwType,
+    LPVOID pvData,
+    LPDWORD pcbData);
+#ifdef UNICODE
+    #define SHRegQueryValueEx SHRegQueryValueExW
+#else
+    #define SHRegQueryValueEx SHRegQueryValueExA
+#endif
 
 /*****************************************************************************
  * INVALID_FILETITLE_CHARACTERS

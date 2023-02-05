@@ -120,11 +120,15 @@ target_link_libraries(glu32 cpprt)
 
 set_module_type(glu32 win32dll)
 
-if(NOT MSVC)
-    target_compile_options(glu32 PRIVATE -Wno-write-strings -Wno-unused-but-set-variable)
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(glu32 PRIVATE -Wno-write-strings)
+    target_compile_options(glu32 PRIVATE -Wno-unused-but-set-variable)
     # Prevent a warning when comparing 'this' against 0
     set_source_files_properties(src/libnurbs/internals/arc.cc PROPERTIES COMPILE_FLAGS "-Wno-nonnull-compare")
-elseif(USE_CLANG_CL)
+endif()
+
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(glu32 PRIVATE -Wno-write-strings)
     target_compile_options(glu32 PRIVATE -Wno-self-assign -Wno-unused-function -Wno-microsoft-include)
     target_compile_options(glu32 PRIVATE -Wno-deprecated-register -Wno-tautological-undefined-compare)
 endif()

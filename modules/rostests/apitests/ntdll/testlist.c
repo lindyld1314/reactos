@@ -6,6 +6,8 @@
 extern void func_LdrEnumResources(void);
 extern void func_load_notifications(void);
 extern void func_NtAcceptConnectPort(void);
+extern void func_NtAdjustGroupsToken(void);
+extern void func_NtAdjustPrivilegesToken(void);
 extern void func_NtAllocateVirtualMemory(void);
 extern void func_NtApphelpCacheControl(void);
 extern void func_NtCompareTokens(void);
@@ -15,7 +17,10 @@ extern void func_NtCreateKey(void);
 extern void func_NtCreateThread(void);
 extern void func_NtDeleteKey(void);
 extern void func_NtDuplicateObject(void);
+extern void func_NtDuplicateToken(void);
+extern void func_NtFilterToken(void);
 extern void func_NtFreeVirtualMemory(void);
+extern void func_NtImpersonateAnonymousToken(void);
 extern void func_NtLoadUnloadKey(void);
 extern void func_NtMapViewOfSection(void);
 extern void func_NtMutant(void);
@@ -26,6 +31,7 @@ extern void func_NtProtectVirtualMemory(void);
 extern void func_NtQueryInformationFile(void);
 extern void func_NtQueryInformationProcess(void);
 extern void func_NtQueryInformationThread(void);
+extern void func_NtQueryInformationToken(void);
 extern void func_NtQueryKey(void);
 extern void func_NtQuerySystemEnvironmentValue(void);
 extern void func_NtQuerySystemInformation(void);
@@ -36,6 +42,7 @@ extern void func_NtSaveKey(void);
 extern void func_NtSetInformationFile(void);
 extern void func_NtSetInformationProcess(void);
 extern void func_NtSetInformationThread(void);
+extern void func_NtSetInformationToken(void);
 extern void func_NtSetValueKey(void);
 extern void func_NtSetVolumeInformationFile(void);
 extern void func_NtSystemInformation(void);
@@ -58,6 +65,7 @@ extern void func_RtlGenerate8dot3Name(void);
 extern void func_RtlGetFullPathName_U(void);
 extern void func_RtlGetFullPathName_Ustr(void);
 extern void func_RtlGetFullPathName_UstrEx(void);
+extern void func_RtlGetLengthWithoutLastFullDosOrNtPathElement(void);
 extern void func_RtlGetLengthWithoutTrailingPathSeperators(void);
 extern void func_RtlGetLongestNtPathLength(void);
 extern void func_RtlGetNtProductType(void);
@@ -69,20 +77,29 @@ extern void func_RtlIsNameLegalDOS8Dot3(void);
 extern void func_RtlMemoryStream(void);
 extern void func_RtlMultipleAllocateHeap(void);
 extern void func_RtlNtPathNameToDosPathName(void);
+extern void func_RtlpApplyLengthFunction(void);
 extern void func_RtlpEnsureBufferSize(void);
 extern void func_RtlQueryTimeZoneInformation(void);
 extern void func_RtlReAllocateHeap(void);
+extern void func_RtlRemovePrivileges(void);
 extern void func_RtlUnicodeStringToAnsiString(void);
+extern void func_RtlUnicodeStringToCountedOemString(void);
+extern void func_RtlUnicodeToOemN(void);
 extern void func_RtlUpcaseUnicodeStringToCountedOemString(void);
 extern void func_RtlValidateUnicodeString(void);
+extern void func_RtlxUnicodeStringToAnsiSize(void);
+extern void func_RtlxUnicodeStringToOemSize(void);
 extern void func_StackOverflow(void);
 extern void func_TimerResolution(void);
+extern void func_UserModeException(void);
 
 const struct test winetest_testlist[] =
 {
     { "LdrEnumResources",               func_LdrEnumResources },
     { "load_notifications",             func_load_notifications },
     { "NtAcceptConnectPort",            func_NtAcceptConnectPort },
+    { "NtAdjustGroupsToken",            func_NtAdjustGroupsToken },
+    { "NtAdjustPrivilegesToken",        func_NtAdjustPrivilegesToken },
     { "NtAllocateVirtualMemory",        func_NtAllocateVirtualMemory },
     { "NtApphelpCacheControl",          func_NtApphelpCacheControl },
     { "NtCompareTokens",                func_NtCompareTokens },
@@ -92,7 +109,10 @@ const struct test winetest_testlist[] =
     { "NtCreateThread",                 func_NtCreateThread },
     { "NtDeleteKey",                    func_NtDeleteKey },
     { "NtDuplicateObject",              func_NtDuplicateObject },
+    { "NtDuplicateToken",               func_NtDuplicateToken },
+    { "NtFilterToken",                  func_NtFilterToken },
     { "NtFreeVirtualMemory",            func_NtFreeVirtualMemory },
+    { "NtImpersonateAnonymousToken",    func_NtImpersonateAnonymousToken },
     { "NtLoadUnloadKey",                func_NtLoadUnloadKey },
     { "NtMapViewOfSection",             func_NtMapViewOfSection },
     { "NtMutant",                       func_NtMutant },
@@ -103,6 +123,7 @@ const struct test winetest_testlist[] =
     { "NtQueryInformationFile",         func_NtQueryInformationFile },
     { "NtQueryInformationProcess",      func_NtQueryInformationProcess },
     { "NtQueryInformationThread",       func_NtQueryInformationThread },
+    { "NtQueryInformationToken",        func_NtQueryInformationToken },
     { "NtQueryKey",                     func_NtQueryKey },
     { "NtQuerySystemEnvironmentValue",  func_NtQuerySystemEnvironmentValue },
     { "NtQuerySystemInformation",       func_NtQuerySystemInformation },
@@ -113,6 +134,7 @@ const struct test winetest_testlist[] =
     { "NtSetInformationFile",           func_NtSetInformationFile },
     { "NtSetInformationProcess",        func_NtSetInformationProcess },
     { "NtSetInformationThread",         func_NtSetInformationThread },
+    { "NtSetInformationToken",          func_NtSetInformationToken },
     { "NtSetValueKey",                  func_NtSetValueKey},
     { "NtSetVolumeInformationFile",     func_NtSetVolumeInformationFile },
     { "NtSystemInformation",            func_NtSystemInformation },
@@ -135,6 +157,7 @@ const struct test winetest_testlist[] =
     { "RtlGetFullPathName_U",           func_RtlGetFullPathName_U },
     { "RtlGetFullPathName_Ustr",        func_RtlGetFullPathName_Ustr },
     { "RtlGetFullPathName_UstrEx",      func_RtlGetFullPathName_UstrEx },
+    { "RtlGetLengthWithoutLastFullDosOrNtPathElement", func_RtlGetLengthWithoutLastFullDosOrNtPathElement },
     { "RtlGetLengthWithoutTrailingPathSeperators", func_RtlGetLengthWithoutTrailingPathSeperators },
     { "RtlGetLongestNtPathLength",      func_RtlGetLongestNtPathLength },
     { "RtlGetNtProductType",            func_RtlGetNtProductType },
@@ -146,14 +169,21 @@ const struct test winetest_testlist[] =
     { "RtlMemoryStream",                func_RtlMemoryStream },
     { "RtlMultipleAllocateHeap",        func_RtlMultipleAllocateHeap },
     { "RtlNtPathNameToDosPathName",     func_RtlNtPathNameToDosPathName },
+    { "RtlpApplyLengthFunction",        func_RtlpApplyLengthFunction },
     { "RtlpEnsureBufferSize",           func_RtlpEnsureBufferSize },
     { "RtlQueryTimeZoneInformation",    func_RtlQueryTimeZoneInformation },
     { "RtlReAllocateHeap",              func_RtlReAllocateHeap },
+    { "RtlRemovePrivileges",            func_RtlRemovePrivileges },
+    { "RtlUnicodeStringToAnsiSize",     func_RtlxUnicodeStringToAnsiSize }, /* For some reason, starting test name with Rtlx hides it */
     { "RtlUnicodeStringToAnsiString",   func_RtlUnicodeStringToAnsiString },
+    { "RtlUnicodeStringToCountedOemString", func_RtlUnicodeStringToCountedOemString },
+    { "RtlUnicodeStringToOemSize",      func_RtlxUnicodeStringToOemSize },
+    { "RtlUnicodeToOemN",               func_RtlUnicodeToOemN },
     { "RtlUpcaseUnicodeStringToCountedOemString", func_RtlUpcaseUnicodeStringToCountedOemString },
     { "RtlValidateUnicodeString",       func_RtlValidateUnicodeString },
     { "StackOverflow",                  func_StackOverflow },
     { "TimerResolution",                func_TimerResolution },
+    { "UserModeException",              func_UserModeException },
 
     { 0, 0 }
 };

@@ -11,6 +11,8 @@ DBG_DEFAULT_CHANNEL(UserMenu);
 
 /* INTERNAL ******************************************************************/
 
+BOOL FASTCALL UITOOLS95_DrawFrameMenu(HDC dc, LPRECT r, UINT uFlags); /* draw.c */
+
 HFONT ghMenuFont = NULL;
 HFONT ghMenuFontBold = NULL;
 static SIZE MenuCharSize;
@@ -2186,14 +2188,14 @@ static void MENU_DrawScrollArrows(PMENU lppop, HDC hdc)
     rect.right = lppop->cxMenu;
     rect.bottom = arrow_bitmap_height;
     FillRect(hdc, &rect, IntGetSysColorBrush(COLOR_MENU));
-    DrawFrameControl(hdc, &rect, DFC_MENU, (lppop->iTop ? 0 : DFCS_INACTIVE)|DFCS_MENUARROWUP);
+    UITOOLS95_DrawFrameMenu(hdc, &rect, (lppop->iTop ? 0 : DFCS_INACTIVE) | DFCS_MENUARROWUP);
 
     rect.top = lppop->cyMenu - arrow_bitmap_height;
     rect.bottom = lppop->cyMenu;
     FillRect(hdc, &rect, IntGetSysColorBrush(COLOR_MENU));
     if (!(lppop->iTop < lppop->iMaxTop - (MENU_GetMaxPopupHeight(lppop) - 2 * arrow_bitmap_height)))
        Flags = DFCS_INACTIVE;
-    DrawFrameControl(hdc, &rect, DFC_MENU, Flags|DFCS_MENUARROWDOWN);
+    UITOOLS95_DrawFrameMenu(hdc, &rect, Flags | DFCS_MENUARROWDOWN);
 }
 
 /***********************************************************************
@@ -2308,7 +2310,7 @@ static void FASTCALL MENU_DrawMenuItem(PWND Wnd, PMENU Menu, PWND WndOwner, HDC 
             RECT rectTemp;
             RtlCopyMemory(&rectTemp, &rect, sizeof(RECT));
             rectTemp.left = rectTemp.right - UserGetSystemMetrics(SM_CXMENUCHECK);
-            DrawFrameControl(hdc, &rectTemp, DFC_MENU, DFCS_MENUARROW);
+            UITOOLS95_DrawFrameMenu(hdc, &rectTemp, DFCS_MENUARROW);
         }
         return;
     }
@@ -2452,9 +2454,9 @@ static void FASTCALL MENU_DrawMenuItem(PWND Wnd, PMENU Menu, PWND WndOwner, HDC 
                 RECT r;
                 r = rect;
                 r.right = r.left + check_bitmap_width;
-                DrawFrameControl( hdc, &r, DFC_MENU,
-                                 (lpitem->fType & MFT_RADIOCHECK) ?
-                                 DFCS_MENUBULLET : DFCS_MENUCHECK);
+                UITOOLS95_DrawFrameMenu(hdc, &r,
+                                        (lpitem->fType & MFT_RADIOCHECK) ?
+                                        DFCS_MENUBULLET : DFCS_MENUCHECK);
                 checked = TRUE;
             }
         }
@@ -2475,7 +2477,7 @@ static void FASTCALL MENU_DrawMenuItem(PWND Wnd, PMENU Menu, PWND WndOwner, HDC 
             RECT rectTemp;
             RtlCopyMemory(&rectTemp, &rect, sizeof(RECT));
             rectTemp.left = rectTemp.right - check_bitmap_width;
-            DrawFrameControl(hdc, &rectTemp, DFC_MENU, DFCS_MENUARROW);
+            UITOOLS95_DrawFrameMenu(hdc, &rectTemp, DFCS_MENUARROW);
         }
         rect.left += 4;
         if( !((Menu->fFlags & MNS_STYLE_MASK) & MNS_NOCHECK))
@@ -3813,6 +3815,7 @@ static LRESULT FASTCALL MENU_DoNextMenu(MTRACKER* pmt, UINT Vk, UINT wFlags)
               /* switch to the system menu */
               MenuTmp = get_win_sys_menu(hNewWnd);
               if (MenuTmp) hNewMenu = UserHMGetHandle(MenuTmp);
+              else hNewMenu = NULL;
           }
           else
               return FALSE;
@@ -4118,7 +4121,7 @@ static INT FASTCALL MENU_TrackMenu(PMENU pmenu, UINT wFlags, INT x, INT y,
                 /* ReactOS Checks */
                 if (!VerifyWnd(mt.OwnerWnd)                            ||
                     !ValidateHwndNoErr(mt.CurrentMenu->hWnd)           ||
-                     pti->MessageQueue->QF_flags & QF_ACTIVATIONCHANGE ||
+                     //pti->MessageQueue->QF_flags & QF_ACTIVATIONCHANGE || // See CORE-17338
                      capture_win != IntGetCapture() ) // Should not happen, but this is ReactOS...
                 {
                    ErrorExit = TRUE; // Do not wait on dead windows, now win test_capture_4 works.

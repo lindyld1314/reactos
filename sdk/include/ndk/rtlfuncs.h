@@ -807,6 +807,33 @@ RtlUnwind(
 
 #define RTL_STACK_WALKING_MODE_FRAMES_TO_SKIP_SHIFT 8
 
+#ifdef _M_AMD64
+
+NTSYSAPI
+PRUNTIME_FUNCTION
+NTAPI
+RtlLookupFunctionEntry(
+    _In_ DWORD64 ControlPc,
+    _Out_ PDWORD64 ImageBase,
+    _Inout_opt_ PUNWIND_HISTORY_TABLE HistoryTable
+);
+
+NTSYSAPI
+PEXCEPTION_ROUTINE
+NTAPI
+RtlVirtualUnwind(
+    _In_ ULONG HandlerType,
+    _In_ ULONG64 ImageBase,
+    _In_ ULONG64 ControlPc,
+    _In_ PRUNTIME_FUNCTION FunctionEntry,
+    _Inout_ PCONTEXT Context,
+    _Outptr_ PVOID* HandlerData,
+    _Out_ PULONG64 EstablisherFrame,
+    _Inout_opt_ PKNONVOLATILE_CONTEXT_POINTERS ContextPointers
+);
+
+#endif // _M_AMD64
+
 //
 // Tracing Functions
 //
@@ -861,7 +888,7 @@ NTAPI
 RtlCreateTagHeap(
     _In_ HANDLE HeapHandle,
     _In_ ULONG Flags,
-    _In_ PWSTR TagName,
+    _In_opt_ PWSTR TagName,
     _In_ PWSTR TagSubName
 );
 
@@ -1541,6 +1568,20 @@ RtlReleasePrivilege(
     _In_ PVOID ReturnedState
 );
 
+#if (NTDDI_VERSION >= NTDDI_VISTA)
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlRemovePrivileges(
+    _In_ HANDLE TokenHandle,
+    _In_reads_opt_(PrivilegeCount) _When_(PrivilegeCount != 0, _Notnull_)
+         PULONG PrivilegesToKeep,
+    _In_ ULONG PrivilegeCount
+);
+
+#endif /* (NTDDI_VERSION >= NTDDI_VISTA) */
+
 _IRQL_requires_max_(APC_LEVEL)
 NTSYSAPI
 NTSTATUS
@@ -1877,6 +1918,19 @@ RtlUnicodeStringToOemString(
     POEM_STRING DestinationString,
     PCUNICODE_STRING SourceString,
     BOOLEAN AllocateDestinationString
+);
+
+_IRQL_requires_max_(PASSIVE_LEVEL)
+_Must_inspect_result_
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlUnicodeStringToCountedOemString(
+    _When_(AllocateDestinationString, _Out_ _At_(DestinationString->Buffer, __drv_allocatesMem(Mem)))
+    _When_(!AllocateDestinationString, _Inout_)
+        POEM_STRING DestinationString,
+    _In_ PCUNICODE_STRING SourceString,
+    _In_ BOOLEAN AllocateDestinationString
 );
 
 NTSYSAPI
@@ -4534,6 +4588,15 @@ RtlIpv6StringToAddressExW(
 // Time Functions
 //
 NTSYSAPI
+BOOLEAN
+NTAPI
+RtlCutoverTimeToSystemTime(
+    _In_ PTIME_FIELDS CutoverTimeFields,
+    _Out_ PLARGE_INTEGER SystemTime,
+    _In_ PLARGE_INTEGER CurrentTime,
+    _In_ BOOLEAN ThisYearsCutoverOnly);
+
+NTSYSAPI
 NTSTATUS
 NTAPI
 RtlQueryTimeZoneInformation(
@@ -4553,8 +4616,7 @@ NTAPI
 RtlSetTimeZoneInformation(
     _In_ PRTL_TIME_ZONE_INFORMATION TimeZoneInformation);
 
-_Success_(return!=FALSE)
-_Must_inspect_result_
+_Success_(return != FALSE)
 NTSYSAPI
 BOOLEAN
 NTAPI
@@ -4563,8 +4625,7 @@ RtlTimeFieldsToTime(
     _Out_ PLARGE_INTEGER Time
 );
 
-_Success_(return != 0)
-_Must_inspect_result_
+_Success_(return != FALSE)
 NTSYSAPI
 BOOLEAN
 NTAPI

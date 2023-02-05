@@ -185,7 +185,7 @@ ApphelpCheckRunAppEx(
     _In_ HANDLE FileHandle,
     _In_opt_ PVOID Unk1,
     _In_opt_ PVOID Unk2,
-    _In_opt_z_ PWCHAR ApplicationName,
+    _In_opt_z_ PCWSTR ApplicationName,
     _In_opt_ PVOID Environment,
     _In_opt_ USHORT ExeType,
     _Inout_opt_ PULONG Reason,
@@ -398,10 +398,10 @@ BOOL WINAPI SdbRegisterDatabase(
 
 /**
  * @name SdbUnregisterDatabase
- * 
+ *
  *
  * @param pguidDB
- * @return 
+ * @return
  */
 BOOL WINAPI SdbUnregisterDatabase(_In_ const GUID *pguidDB)
 {
@@ -453,7 +453,7 @@ BOOL WINAPI BaseFlushAppcompatCache(VOID);
  * @param hInstance     Unused, pass 0
  * @param lpszCmdLine   Unused, pass 0
  * @param nCmdShow      Unused, pass 0
- * @return 
+ * @return
  */
 BOOL WINAPI ShimDumpCache(HWND hwnd, HINSTANCE hInstance, LPCSTR lpszCmdLine, int nCmdShow)
 {
@@ -468,7 +468,7 @@ BOOL WINAPI ShimDumpCache(HWND hwnd, HINSTANCE hInstance, LPCSTR lpszCmdLine, in
 * @param hInstance     Unused, pass 0
 * @param lpszCmdLine   Unused, pass 0
 * @param nCmdShow      Unused, pass 0
-* @return 
+* @return
 */
 BOOL WINAPI ShimFlushCache(HWND hwnd, HINSTANCE hInstance, LPCSTR lpszCmdLine, int nCmdShow)
 {

@@ -111,7 +111,7 @@ BEGIN
         END
         MENUITEM "&Ava kaust", IDM_OPEN_FOLDER
         MENUITEM "&Näita teksti", IDM_SHOW_TEXT
-    END    
+    END
 END
 
 /* Dialogs */
@@ -305,6 +305,7 @@ END
 
 STRINGTABLE
 BEGIN
+    IDS_ADDRESSMENUTEXT "&Address"
     IDS_HISTORYTEXT "&Ajalugu\tCtrl+H"
 END
 

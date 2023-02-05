@@ -113,7 +113,7 @@ HRESULT CMenuBand_CreateInstance(REFIID iid, LPVOID *ppv)
 #if USE_CUSTOM_MENUBAND
     HMODULE hRShell = GetModuleHandleW(L"rshell.dll");
 
-    if (!hRShell) 
+    if (!hRShell)
         hRShell = LoadLibraryW(L"rshell.dll");
 
     if (hRShell)
@@ -138,6 +138,7 @@ public:
 BEGIN_OBJECT_MAP(ObjectMap)
 OBJECT_ENTRY(CLSID_ACLCustomMRU, CACLCustomMRU)
 OBJECT_ENTRY(CLSID_AutoComplete, CAutoComplete)
+OBJECT_ENTRY(CLSID_ACLHistory, CACLHistory)
 OBJECT_ENTRY(CLSID_ACLMulti, CACLMulti)
 OBJECT_ENTRY(CLSID_ACListISF, CACListISF)
 OBJECT_ENTRY(CLSID_SH_AddressBand, CAddressBand)

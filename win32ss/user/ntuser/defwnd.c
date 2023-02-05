@@ -91,6 +91,7 @@ DefWndHandleWindowPosChanging(PWND pWnd, WINDOWPOS* Pos)
     return 0;
 }
 
+/* Win: xxxHandleWindowPosChanged */
 LRESULT FASTCALL
 DefWndHandleWindowPosChanged(PWND pWnd, WINDOWPOS* Pos)
 {
@@ -120,6 +121,7 @@ DefWndHandleWindowPosChanged(PWND pWnd, WINDOWPOS* Pos)
 //
 // Handle a WM_SYSCOMMAND message. Called from DefWindowProc().
 //
+// Win: xxxSysCommand
 LRESULT FASTCALL
 DefWndHandleSysCommand(PWND pWnd, WPARAM wParam, LPARAM lParam)
 {
@@ -360,6 +362,7 @@ DefWndHandleSetCursor(PWND pWnd, WPARAM wParam, LPARAM lParam)
    return FALSE;
 }
 
+/* Win: xxxDWPPrint */
 VOID FASTCALL DefWndPrint( PWND pwnd, HDC hdc, ULONG uFlags)
 {
   /*
@@ -414,7 +417,7 @@ UserPaintCaption(PWND pWnd, INT Flags)
          * RealUserDrawCaption in order to draw the classic caption when themes
          * are disabled but the themes service is enabled
          */
-         TRACE("UDCB Flags %08x\n");
+         TRACE("UDCB Flags %08x\n", Flags);
          co_IntSendMessage(UserHMGetHandle(pWnd), WM_NCUAHDRAWCAPTION, Flags, 0);
       }
       else
@@ -430,6 +433,7 @@ UserPaintCaption(PWND pWnd, INT Flags)
 }
 
 // WM_SETICON
+/* Win: xxxDWP_SetIcon */
 LRESULT FASTCALL
 DefWndSetIcon(PWND pWnd, WPARAM wParam, LPARAM lParam)
 {
@@ -468,6 +472,7 @@ DefWndSetIcon(PWND pWnd, WPARAM wParam, LPARAM lParam)
     return (LRESULT)hIconOld;
 }
 
+/* Win: DWP_GetIcon */
 LRESULT FASTCALL
 DefWndGetIcon(PWND pWnd, WPARAM wParam, LPARAM lParam)
 {
@@ -486,8 +491,7 @@ DefWndGetIcon(PWND pWnd, WPARAM wParam, LPARAM lParam)
         case ICON_SMALL2:
             hIconRet = UserGetProp(pWnd, gpsi->atomIconSmProp, TRUE);
             break;
-        default:
-            break;
+        DEFAULT_UNREACHABLE;
     }
     return (LRESULT)hIconRet;
 }
@@ -528,6 +532,7 @@ DefWndScreenshot(PWND pWnd)
 /*
    Win32k counterpart of User DefWindowProc
  */
+/* Win: xxxRealDefWindowProc */
 LRESULT FASTCALL
 IntDefWindowProc(
    PWND Wnd,
@@ -733,7 +738,7 @@ IntDefWindowProc(
       {
             if (Wnd->style & WS_CHILD)
             {
-                co_IntSendMessage(UserHMGetHandle(IntGetParent(Wnd)), Msg, wParam, lParam);
+                co_IntSendMessage(UserHMGetHandle(IntGetParent(Wnd)), Msg, (WPARAM)UserHMGetHandle(Wnd), lParam);
             }
             else
             {
@@ -808,7 +813,7 @@ IntDefWindowProc(
 
             if (topWnd && !IsTaskBar)  /* Second test is so we are not touching the Taskbar */
             {
-               if ((topWnd->style & WS_THICKFRAME) == 0)
+               if ((topWnd->style & WS_THICKFRAME) == 0 || !g_bWindowSnapEnabled)
                {
                   return 0;
                }
@@ -816,9 +821,16 @@ IntDefWindowProc(
                if (wParam == VK_DOWN)
                {
                    if (topWnd->style & WS_MAXIMIZE)
+                   {
                        co_IntSendMessage(hwndTop, WM_SYSCOMMAND, SC_RESTORE, lParam);
+
+                       /* "Normal size" must be erased after restoring, otherwise it will block next side snap actions */
+                       RECTL_vSetEmptyRect(&topWnd->InternalPos.NormalRect);
+                   }
                    else
+                   {
                        co_IntSendMessage(hwndTop, WM_SYSCOMMAND, SC_MINIMIZE, lParam);
+                   }
                }
                else if (wParam == VK_UP)
                {
@@ -938,6 +950,24 @@ IntDefWindowProc(
                    }
                    wParamTmp = UserGetKeyState(VK_SHIFT) & 0x8000 ? SC_PREVWINDOW : SC_NEXTWINDOW;
                    co_IntSendMessage( Active, WM_SYSCOMMAND, wParamTmp, wParam );
+                }
+                else if (wParam == VK_SHIFT) // Alt+Shift
+                {
+                    RTL_ATOM ClassAtom = 0;
+                    UNICODE_STRING ustrClass, ustrWindow;
+                    HWND hwndSwitch;
+
+                    RtlInitUnicodeString(&ustrClass, L"kbswitcher");
+                    RtlInitUnicodeString(&ustrWindow, L"");
+
+                    IntGetAtomFromStringOrAtom(&ustrClass, &ClassAtom);
+
+                    hwndSwitch = IntFindWindow(UserGetDesktopWindow(), NULL, ClassAtom, &ustrWindow);
+                    if (hwndSwitch)
+                    {
+#define ID_NEXTLAYOUT 10003
+                        UserPostMessage(hwndSwitch, WM_COMMAND, ID_NEXTLAYOUT, (LPARAM)UserHMGetHandle(Wnd));
+                    }
                 }
             }
             else if( wParam == VK_F10 )

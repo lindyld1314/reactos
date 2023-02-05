@@ -58,9 +58,13 @@
 #include <ndk/rtlfuncs.h>
 #include <ndk/sefuncs.h>
 #include <ndk/vftypes.h>
+
 #undef TEXT
 #define TEXT(s) L##s
+
+#define _IN_KERNEL_
 #include <regstr.h>
+
 #include <ntstrsafe.h>
 #include <ntpoapi.h>
 #define ENABLE_INTSAFE_SIGNED_FUNCTIONS
@@ -123,5 +127,12 @@ C_ASSERT(MAX_WIN32_PATH == MAX_PATH);
 #include <reactos/probe.h>
 #include "internal/probe.h"
 #include "resource.h"
+
+/* Internal Ps alignment probing header */
+#include "internal/ps_i.h"
+
+#ifdef _MSC_VER
+# pragma section("INITDATA", read,write,discard)
+#endif
 
 #endif /* _NTOSKRNL_PCH */

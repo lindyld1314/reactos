@@ -57,6 +57,7 @@ enum _ARCH
     ARCH_AMD64,
     ARCH_IA64,
     ARCH_ARM,
+    ARCH_ARM64,
     ARCH_PPC
 };
 
@@ -244,10 +245,10 @@ OutputLine_stub(FILE *file, EXPORT *pexp)
     int bRelay = 0;
     int bInPrototype = 0;
 
-    /* Workaround for forwarded externs. See here for an explanation: 
+    /* Workaround for forwarded externs. See here for an explanation:
      * https://stackoverflow.com/questions/4060143/forwarding-data-in-a-dll */
-    if (gbMSComp && 
-        (pexp->nCallingConvention == CC_EXTERN) && 
+    if (gbMSComp &&
+        (pexp->nCallingConvention == CC_EXTERN) &&
         (pexp->strTarget.buf != NULL) &&
         (!!ScanToken(pexp->strTarget.buf, '.')))
     {
@@ -439,7 +440,7 @@ OutputLine_stub(FILE *file, EXPORT *pexp)
 void
 OutputHeader_asmstub(FILE *file, char *libname)
 {
-    fprintf(file, "; File generated automatically, do not edit! \n\n");
+    fprintf(file, "; File generated automatically, do not edit!\n\n");
 
     if (giArch == ARCH_X86)
     {
@@ -449,7 +450,7 @@ OutputHeader_asmstub(FILE *file, char *libname)
     {
         fprintf(file, ".code\n");
     }
-    else if (giArch == ARCH_ARM)
+    else if (giArch == ARCH_ARM || giArch == ARCH_ARM64)
     {
         fprintf(file, "    AREA |.text|,ALIGN=2,CODE,READONLY\n\n");
     }
@@ -458,7 +459,7 @@ OutputHeader_asmstub(FILE *file, char *libname)
 void
 Output_stublabel(FILE *fileDest, char* pszSymbolName)
 {
-    if (giArch == ARCH_ARM)
+    if (giArch == ARCH_ARM || giArch == ARCH_ARM64)
     {
         fprintf(fileDest,
                 "\tEXPORT |%s| [FUNC]\n|%s|\n",
@@ -576,6 +577,9 @@ PrintName(FILE *fileDest, EXPORT *pexp, PSTRING pstr, int fDeco)
         ((pexp->nCallingConvention == CC_STDCALL) ||
          (pexp->nCallingConvention == CC_FASTCALL)))
     {
+        /* Beware with C++ exports */
+        int is_cpp = pcName[0] == '?';
+
         /* Scan for a dll forwarding dot */
         pcDot = ScanToken(pcName, '.');
         if (pcDot)
@@ -593,8 +597,8 @@ PrintName(FILE *fileDest, EXPORT *pexp, PSTRING pstr, int fDeco)
         pcAt = ScanToken(pcName, '@');
         if (pcAt && (pcAt < (pcName + nNameLength)))
         {
-            /* On GCC, we need to remove the leading stdcall underscore */
-            if (!gbMSComp && (pexp->nCallingConvention == CC_STDCALL))
+            /* On GCC, we need to remove the leading stdcall underscore, but not for C++ exports */
+            if (!gbMSComp && !is_cpp && (pexp->nCallingConvention == CC_STDCALL))
             {
                 pcName++;
                 nNameLength--;
@@ -712,8 +716,9 @@ OutputLine_def_GCC(FILE *fileDest, EXPORT *pexp)
         bTracing = 1;
     }
 
-    /* Special handling for stdcall and fastcall */
+    /* Special handling for stdcall and fastcall, but not C++ exports*/
     if ((giArch == ARCH_X86) &&
+        (pexp->strName.buf[0] != '?') &&
         ((pexp->nCallingConvention == CC_STDCALL) ||
          (pexp->nCallingConvention == CC_FASTCALL)))
     {
@@ -748,9 +753,9 @@ OutputLine_def(FILE *fileDest, EXPORT *pexp)
         DbgPrint("OutputLine_def: skipping private export '%.*s'...\n", pexp->strName.len, pexp->strName.buf);
         return 1;
     }
-    
+
     /* For MS linker, forwarded externs are managed via #pragma comment(linker,"/export:_data=org.data,DATA") */
-    if (gbMSComp && !gbImportLib && (pexp->nCallingConvention == CC_EXTERN) && 
+    if (gbMSComp && !gbImportLib && (pexp->nCallingConvention == CC_EXTERN) &&
         (pexp->strTarget.buf != NULL) && !!ScanToken(pexp->strTarget.buf, '.'))
     {
         DbgPrint("OutputLine_def: skipping forwarded extern export '%.*s' ->'%.*s'...\n",
@@ -1401,7 +1406,7 @@ void usage(void)
            "  -n=<name>               name of the dll\n"
            "  --implib                generate a def file for an import library\n"
            "  --no-private-warnings   suppress warnings about symbols that should be -private\n"
-           "  -a=<arch>               set architecture to <arch> (i386, x86_64, arm)\n"
+           "  -a=<arch>               set architecture to <arch> (i386, x86_64, arm, arm64)\n"
            "  --with-tracing          generate wine-like \"+relay\" trace trampolines (needs -s)\n");
 }
 
@@ -1490,6 +1495,7 @@ int main(int argc, char *argv[])
     else if (strcasecmp(pszArchString, "x86_64") == 0) giArch = ARCH_AMD64;
     else if (strcasecmp(pszArchString, "ia64") == 0) giArch = ARCH_IA64;
     else if (strcasecmp(pszArchString, "arm") == 0) giArch = ARCH_ARM;
+    else if (strcasecmp(pszArchString, "arm64") == 0) giArch = ARCH_ARM64;
     else if (strcasecmp(pszArchString, "ppc") == 0) giArch = ARCH_PPC;
 
     if ((giArch == ARCH_AMD64) || (giArch == ARCH_IA64))

@@ -16,6 +16,7 @@ IDI_CPLSYSTEM ICON "resources/applet.ico"
 IDI_USERPROF ICON "resources/devmgr.ico"
 IDI_HARDPROF ICON "resources/hwprofile.ico"
 IDI_DEVMGR ICON "resources/dev.ico"
+IDI_LICENSE ICON "resources/license.ico"
 IDI_UP ICON "resources/up.ico"
 IDI_DOWN ICON "resources/down.ico"
 IDI_ADDHW ICON "resources/addhw.ico"
@@ -108,6 +109,9 @@ END
 #endif
 #ifdef LANGUAGE_ZH_CN
     #include "lang/zh-CN.rc"
+#endif
+#ifdef LANGUAGE_ZH_HK
+    #include "lang/zh-HK.rc"
 #endif
 #ifdef LANGUAGE_ZH_TW
     #include "lang/zh-TW.rc"

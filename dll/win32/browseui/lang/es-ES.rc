@@ -113,7 +113,7 @@ BEGIN
         END
         MENUITEM "&Abrir carpeta", IDM_OPEN_FOLDER
         MENUITEM "&Mostrar texto", IDM_SHOW_TEXT
-    END    
+    END
 END
 
 /* Dialogs */
@@ -307,6 +307,7 @@ END
 
 STRINGTABLE
 BEGIN
+    IDS_ADDRESSMENUTEXT "&Address"
     IDS_HISTORYTEXT "&Historial\tCtrl+H"
 END
 

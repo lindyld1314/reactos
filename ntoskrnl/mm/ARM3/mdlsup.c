@@ -74,10 +74,18 @@ MiMapLockedPagesInUserSpace(
         DPRINT1("FIXME: Need to check for large pages\n");
     }
 
+    Status = PsChargeProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
+    if (!NT_SUCCESS(Status))
+    {
+        Vad = NULL;
+        goto Error;
+    }
+
     /* Allocate a VAD for our mapped region */
     Vad = ExAllocatePoolWithTag(NonPagedPool, sizeof(MMVAD_LONG), 'ldaV');
     if (Vad == NULL)
     {
+        PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
         Status = STATUS_INSUFFICIENT_RESOURCES;
         goto Error;
     }
@@ -155,7 +163,6 @@ MiMapLockedPagesInUserSpace(
     MiLockProcessWorkingSetUnsafe(Process, Thread);
 
     ASSERT(Vad->EndingVpn >= Vad->StartingVpn);
-
     MiInsertVad((PMMVAD)Vad, &Process->VadRoot);
 
     /* Check if this is uncached */
@@ -248,6 +255,7 @@ MiMapLockedPagesInUserSpace(
 
         /* Acquire a share count */
         Pfn1 = MI_PFN_ELEMENT(PointerPde->u.Hard.PageFrameNumber);
+        DPRINT("Incrementing %p from %p\n", Pfn1, _ReturnAddress());
         OldIrql = MiAcquirePfnLock();
         Pfn1->u2.ShareCount++;
         MiReleasePfnLock(OldIrql);
@@ -274,6 +282,7 @@ Error:
     if (Vad != NULL)
     {
         ExFreePoolWithTag(Vad, 'ldaV');
+        PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
     }
     ExRaiseStatus(Status);
 }
@@ -318,6 +327,7 @@ MiUnmapLockedPagesInUserSpace(
     /* Remove it from the process VAD tree */
     ASSERT(Process->VadRoot.NumberGenericTableElements >= 1);
     MiRemoveNode((PMMADDRESS_NODE)Vad, &Process->VadRoot);
+    PsReturnProcessNonPagedPoolQuota(Process, sizeof(MMVAD_LONG));
 
     /* MiRemoveNode should have removed us if we were the hint */
     ASSERT(Process->VadRoot.NodeHint != Vad);
@@ -330,9 +340,6 @@ MiUnmapLockedPagesInUserSpace(
         ASSERT(MiAddressToPte(PointerPte)->u.Hard.Valid == 1);
         ASSERT(PointerPte->u.Hard.Valid == 1);
 
-        /* Dereference the page */
-        MiDecrementPageTableReferences(BaseAddress);
-
         /* Invalidate it */
         MI_ERASE_PTE(PointerPte);
 
@@ -341,28 +348,17 @@ MiUnmapLockedPagesInUserSpace(
         PageTablePage = PointerPde->u.Hard.PageFrameNumber;
         MiDecrementShareCount(MiGetPfnEntry(PageTablePage), PageTablePage);
 
+        if (MiDecrementPageTableReferences(BaseAddress) == 0)
+        {
+            ASSERT(MiIsPteOnPdeBoundary(PointerPte + 1) || (NumberOfPages == 1));
+            MiDeletePde(PointerPde, Process);
+        }
+
         /* Next page */
         PointerPte++;
         NumberOfPages--;
         BaseAddress = (PVOID)((ULONG_PTR)BaseAddress + PAGE_SIZE);
         MdlPages++;
-
-        /* Moving to a new PDE? */
-        if (PointerPde != MiAddressToPde(BaseAddress))
-        {
-            /* See if we should delete it */
-            KeFlushProcessTb();
-            PointerPde = MiPteToPde(PointerPte - 1);
-            ASSERT(PointerPde->u.Hard.Valid == 1);
-            if (MiQueryPageTableReferences(BaseAddress) == 0)
-            {
-                ASSERT(PointerPde->u.Long != 0);
-                MiDeletePte(PointerPde,
-                            MiPteToAddress(PointerPde),
-                            Process,
-                            NULL);
-            }
-        }
     }
 
     KeFlushProcessTb();

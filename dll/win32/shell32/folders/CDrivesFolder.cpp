@@ -286,38 +286,52 @@ HRESULT CALLBACK DrivesContextMenuCallback(IShellFolder *psf,
     GetVolumeInformationA(szDrive, NULL, 0, NULL, NULL, &dwFlags, NULL, 0);
 
 // custom command IDs
+#if 0 // Disabled until our menu building system is fixed
+#define CMDID_FORMAT        0
+#define CMDID_EJECT         1
+#define CMDID_DISCONNECT    2
+#else
+/* FIXME: These IDs should start from 0, however there is difference
+ * between ours and Windows' menu building systems, which should be fixed. */
 #define CMDID_FORMAT        1
 #define CMDID_EJECT         2
 #define CMDID_DISCONNECT    3
+#endif
 
     if (uMsg == DFM_MERGECONTEXTMENU)
     {
         QCMINFO *pqcminfo = (QCMINFO *)lParam;
 
         UINT idCmdFirst = pqcminfo->idCmdFirst;
+        UINT idCmd = 0;
         if (!(dwFlags & FILE_READ_ONLY_VOLUME) && nDriveType != DRIVE_REMOTE)
         {
             /* add separator and Format */
-            UINT idCmd = idCmdFirst + CMDID_FORMAT;
+            idCmd = idCmdFirst + CMDID_FORMAT;
             _InsertMenuItemW(pqcminfo->hmenu, pqcminfo->indexMenu++, TRUE, 0, MFT_SEPARATOR, NULL, 0);
             _InsertMenuItemW(pqcminfo->hmenu, pqcminfo->indexMenu++, TRUE, idCmd, MFT_STRING, MAKEINTRESOURCEW(IDS_FORMATDRIVE), MFS_ENABLED);
         }
         if (nDriveType == DRIVE_REMOVABLE || nDriveType == DRIVE_CDROM)
         {
             /* add separator and Eject */
-            UINT idCmd = idCmdFirst + CMDID_EJECT;
+            idCmd = idCmdFirst + CMDID_EJECT;
             _InsertMenuItemW(pqcminfo->hmenu, pqcminfo->indexMenu++, TRUE, 0, MFT_SEPARATOR, NULL, 0);
             _InsertMenuItemW(pqcminfo->hmenu, pqcminfo->indexMenu++, TRUE, idCmd, MFT_STRING, MAKEINTRESOURCEW(IDS_EJECT), MFS_ENABLED);
         }
         if (nDriveType == DRIVE_REMOTE)
         {
             /* add separator and Disconnect */
-            UINT idCmd = idCmdFirst + CMDID_DISCONNECT;
+            idCmd = idCmdFirst + CMDID_DISCONNECT;
             _InsertMenuItemW(pqcminfo->hmenu, pqcminfo->indexMenu++, TRUE, 0, MFT_SEPARATOR, NULL, 0);
             _InsertMenuItemW(pqcminfo->hmenu, pqcminfo->indexMenu++, TRUE, idCmd, MFT_STRING, MAKEINTRESOURCEW(IDS_DISCONNECT), MFS_ENABLED);
         }
 
-        pqcminfo->idCmdFirst += 3;
+        if (idCmd)
+#if 0 // see FIXME above
+            pqcminfo->idCmdFirst = ++idCmd;
+#else
+            pqcminfo->idCmdFirst = (idCmd + 2);
+#endif
     }
     else if (uMsg == DFM_INVOKECOMMAND)
     {
@@ -329,7 +343,9 @@ HRESULT CALLBACK DrivesContextMenuCallback(IShellFolder *psf,
 
         if (wParam == DFM_CMD_PROPERTIES)
         {
-            hr = SH_ShowDriveProperties(wszBuf, pidlFolder, apidl);
+            // pdtobj should be valid at this point!
+            ATLASSERT(pdtobj);
+            hr = SH_ShowDriveProperties(wszBuf, pdtobj) ? S_OK : E_UNEXPECTED;
             if (FAILED(hr))
             {
                 dwError = ERROR_CAN_NOT_COMPLETE;
@@ -411,8 +427,6 @@ getIconLocationForDrive(IShellFolder *psf, PCITEMID_CHILD pidl, UINT uFlags,
     WCHAR wszPath[MAX_PATH];
     WCHAR wszAutoRunInfPath[MAX_PATH];
     WCHAR wszValue[MAX_PATH], wszTemp[MAX_PATH];
-    static const WCHAR wszAutoRunInf[] = { 'a','u','t','o','r','u','n','.','i','n','f',0 };
-    static const WCHAR wszAutoRun[] = { 'a','u','t','o','r','u','n',0 };
 
     // get path
     if (!ILGetDisplayNameExW(psf, pidl, wszPath, 0))
@@ -422,10 +436,10 @@ getIconLocationForDrive(IShellFolder *psf, PCITEMID_CHILD pidl, UINT uFlags,
 
     // build the full path of autorun.inf
     StringCchCopyW(wszAutoRunInfPath, _countof(wszAutoRunInfPath), wszPath);
-    PathAppendW(wszAutoRunInfPath, wszAutoRunInf);
+    PathAppendW(wszAutoRunInfPath, L"autorun.inf");
 
     // autorun.inf --> wszValue
-    if (GetPrivateProfileStringW(wszAutoRun, L"icon", NULL, wszValue, _countof(wszValue),
+    if (GetPrivateProfileStringW(L"autorun", L"icon", NULL, wszValue, _countof(wszValue),
                                  wszAutoRunInfPath) && wszValue[0] != 0)
     {
         // wszValue --> wszTemp
@@ -443,6 +457,28 @@ getIconLocationForDrive(IShellFolder *psf, PCITEMID_CHILD pidl, UINT uFlags,
         // wszPath --> szIconFile
         GetFullPathNameW(wszPath, cchMax, szIconFile, NULL);
 
+        return S_OK;
+    }
+
+    return E_FAIL;
+}
+
+static HRESULT
+getLabelForDrive(LPWSTR wszPath, LPWSTR wszLabel)
+{
+    WCHAR wszAutoRunInfPath[MAX_PATH];
+    WCHAR wszTemp[MAX_PATH];
+
+    if (!PathIsDirectoryW(wszPath))
+        return E_FAIL;
+
+    StringCchCopyW(wszAutoRunInfPath, _countof(wszAutoRunInfPath), wszPath);
+    PathAppendW(wszAutoRunInfPath, L"autorun.inf");
+
+    if (GetPrivateProfileStringW(L"autorun", L"label", NULL, wszTemp, _countof(wszTemp),
+                                 wszAutoRunInfPath) && wszTemp[0] != 0)
+    {
+        StringCchCopyW(wszLabel, _countof(wszTemp), wszTemp);
         return S_OK;
     }
 
@@ -530,10 +566,10 @@ class CDrivesFolderEnum :
 
 static const shvheader MyComputerSFHeader[] = {
     {IDS_SHV_COLUMN_NAME, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_LEFT, 15},
-    {IDS_SHV_COLUMN_COMMENTS, SHCOLSTATE_TYPE_STR, LVCFMT_LEFT, 10},
     {IDS_SHV_COLUMN_TYPE, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_LEFT, 10},
     {IDS_SHV_COLUMN_DISK_CAPACITY, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_RIGHT, 10},
     {IDS_SHV_COLUMN_DISK_AVAILABLE, SHCOLSTATE_TYPE_STR | SHCOLSTATE_ONBYDEFAULT, LVCFMT_RIGHT, 10},
+    {IDS_SHV_COLUMN_COMMENTS, SHCOLSTATE_TYPE_STR, LVCFMT_LEFT, 10},
 };
 
 #define MYCOMPUTERSHELLVIEWCOLUMNS 5
@@ -564,9 +600,9 @@ HRESULT WINAPI CDrivesFolder::FinalConstruct()
     if (pidlRoot == NULL)
         return E_OUTOFMEMORY;
 
-    HRESULT hr = CRegFolder_CreateInstance(&CLSID_MyComputer, 
-                                           pidlRoot, 
-                                           L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", 
+    HRESULT hr = CRegFolder_CreateInstance(&CLSID_MyComputer,
+                                           pidlRoot,
+                                           L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
                                            L"MyComputer",
                                            IID_PPV_ARG(IShellFolder2, &m_regFolder));
 
@@ -667,7 +703,7 @@ HRESULT WINAPI CDrivesFolder::BindToObject(PCUIDLIST_RELATIVE pidl, LPBC pbcRese
         return m_regFolder->BindToObject(pidl, pbcReserved, riid, ppvOut);
 
     CHAR* pchDrive = _ILGetDataPointer(pidl)->u.drive.szDriveName;
-    
+
     PERSIST_FOLDER_TARGET_INFO pfti = {0};
     pfti.dwAttributes = -1;
     pfti.csidl = -1;
@@ -723,7 +759,7 @@ HRESULT WINAPI CDrivesFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1
     CHAR* pszDrive2 = _ILGetDataPointer(pidl2)->u.drive.szDriveName;
 
     int result;
-    switch(LOWORD(lParam)) 
+    switch(LOWORD(lParam))
     {
         case 0:        /* name */
         {
@@ -731,16 +767,13 @@ HRESULT WINAPI CDrivesFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1
             hres = MAKE_COMPARE_HRESULT(result);
             break;
         }
-        case 1:        /* comments */
-            hres = MAKE_COMPARE_HRESULT(0);
-            break;
-        case 2:        /* Type */
+        case 1:        /* Type */
         {
             /* We want to return immediately because SHELL32_CompareDetails also compares children. */
             return SHELL32_CompareDetails(this, lParam, pidl1, pidl2);
         }
-        case 3:       /* Size */
-        case 4:       /* Size Available */
+        case 2:       /* Size */
+        case 3:       /* Size Available */
         {
             ULARGE_INTEGER Drive1Available, Drive1Total, Drive2Available, Drive2Total;
 
@@ -763,6 +796,9 @@ HRESULT WINAPI CDrivesFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl1
             hres = MAKE_COMPARE_HRESULT(Diff.QuadPart);
             break;
         }
+        case 4:        /* comments */
+            hres = MAKE_COMPARE_HRESULT(0);
+            break;
         default:
             return E_INVALIDARG;
     }
@@ -819,17 +855,6 @@ HRESULT WINAPI CDrivesFolder::CreateViewObject(HWND hwndOwner, REFIID riid, LPVO
     }
     TRACE ("-- (%p)->(interface=%p)\n", this, ppvOut);
     return hr;
-}
-
-static BOOL _ILIsControlPanel(LPCITEMIDLIST pidl)
-{
-    GUID *guid = _ILGetGUIDPointer(pidl);
-
-    TRACE("(%p)\n", pidl);
-
-    if (guid)
-        return IsEqualIID(*guid, CLSID_ControlPanel);
-    return FALSE;
 }
 
 /**************************************************************************
@@ -976,46 +1001,52 @@ HRESULT WINAPI CDrivesFolder::GetDisplayNameOf(PCUITEMID_CHILD pidl, DWORD dwFla
     if (!(dwFlags & SHGDN_FORPARSING))
     {
         WCHAR wszDrive[18] = {0};
-        DWORD dwVolumeSerialNumber, dwMaximumComponentLength, dwFileSystemFlags;
-        static const WCHAR wszOpenBracket[] = {' ', '(', 0};
-        static const WCHAR wszCloseBracket[] = {')', 0};
 
         lstrcpynW(wszDrive, pszPath, 4);
         pszPath[0] = L'\0';
-        GetVolumeInformationW(wszDrive, pszPath,
-                                MAX_PATH - 7,
-                                &dwVolumeSerialNumber,
-                                &dwMaximumComponentLength, &dwFileSystemFlags, NULL, 0);
-        pszPath[MAX_PATH-1] = L'\0';
-        if (!wcslen(pszPath))
+
+        if (!SUCCEEDED(getLabelForDrive(wszDrive, pszPath)))
         {
-            UINT DriveType, ResourceId;
-            DriveType = GetDriveTypeW(wszDrive);
-            switch(DriveType)
+            DWORD dwVolumeSerialNumber, dwMaximumComponentLength, dwFileSystemFlags;
+
+            GetVolumeInformationW(wszDrive, pszPath,
+                                    MAX_PATH - 7,
+                                    &dwVolumeSerialNumber,
+                                    &dwMaximumComponentLength, &dwFileSystemFlags, NULL, 0);
+            pszPath[MAX_PATH-1] = L'\0';
+
+            if (!wcslen(pszPath))
             {
-                case DRIVE_FIXED:
-                    ResourceId = IDS_DRIVE_FIXED;
-                    break;
-                case DRIVE_REMOTE:
-                    ResourceId = IDS_DRIVE_NETWORK;
-                    break;
-                case DRIVE_CDROM:
-                    ResourceId = IDS_DRIVE_CDROM;
-                    break;
-                default:
-                    ResourceId = 0;
-            }
-            if (ResourceId)
-            {
-                dwFileSystemFlags = LoadStringW(shell32_hInstance, ResourceId, pszPath, MAX_PATH);
-                if (dwFileSystemFlags > MAX_PATH - 7)
-                    pszPath[MAX_PATH-7] = L'\0';
+                UINT DriveType, ResourceId;
+                DriveType = GetDriveTypeW(wszDrive);
+
+                switch (DriveType)
+                {
+                    case DRIVE_FIXED:
+                        ResourceId = IDS_DRIVE_FIXED;
+                        break;
+                    case DRIVE_REMOTE:
+                        ResourceId = IDS_DRIVE_NETWORK;
+                        break;
+                    case DRIVE_CDROM:
+                        ResourceId = IDS_DRIVE_CDROM;
+                        break;
+                    default:
+                        ResourceId = 0;
+                }
+
+                if (ResourceId)
+                {
+                    dwFileSystemFlags = LoadStringW(shell32_hInstance, ResourceId, pszPath, MAX_PATH);
+                    if (dwFileSystemFlags > MAX_PATH - 7)
+                        pszPath[MAX_PATH-7] = L'\0';
+                }
             }
         }
-        wcscat (pszPath, wszOpenBracket);
+        wcscat (pszPath, L" (");
         wszDrive[2] = L'\0';
         wcscat (pszPath, wszDrive);
-        wcscat (pszPath, wszCloseBracket);
+        wcscat (pszPath, L")");
     }
 
     if (SUCCEEDED(hr))
@@ -1130,28 +1161,28 @@ HRESULT WINAPI CDrivesFolder::GetDetailsOf(PCUITEMID_CHILD pidl, UINT iColumn, S
             case 0:        /* name */
                 hr = GetDisplayNameOf(pidl, SHGDN_NORMAL | SHGDN_INFOLDER, &psd->str);
                 break;
-            case 1:                /* FIXME: comments */
-                hr = SHSetStrRet(&psd->str, "");
-                break;
-            case 2:        /* type */
+            case 1:        /* type */
                 if (DriveType == DRIVE_REMOVABLE && !IsDriveFloppyA(pszDrive))
                     hr = SHSetStrRet(&psd->str, IDS_DRIVE_REMOVABLE);
                 else
                     hr = SHSetStrRet(&psd->str, iDriveTypeIds[DriveType]);
                 break;
-            case 3:        /* total size */
-            case 4:        /* free size */
+            case 2:        /* total size */
+            case 3:        /* free size */
                 psd->str.cStr[0] = 0x00;
                 psd->str.uType = STRRET_CSTR;
                 if (GetVolumeInformationA(pszDrive, NULL, 0, NULL, NULL, NULL, NULL, 0))
                 {
                     GetDiskFreeSpaceExA(pszDrive, &ulFreeBytes, &ulTotalBytes, NULL);
-                    if (iColumn == 3)
+                    if (iColumn == 2)
                         StrFormatByteSize64A(ulTotalBytes.QuadPart, psd->str.cStr, MAX_PATH);
                     else
                         StrFormatByteSize64A(ulFreeBytes.QuadPart, psd->str.cStr, MAX_PATH);
                 }
                 hr = S_OK;
+                break;
+            case 4:                /* FIXME: comments */
+                hr = SHSetStrRet(&psd->str, "");
                 break;
         }
     }

@@ -20,7 +20,12 @@
 
 #include "regedit.h"
 
-BOOL ProcessCmdLine(LPWSTR lpCmdLine);
+BOOL ProcessCmdLine(WCHAR *cmdline);
+
+const WCHAR *reg_class_namesW[] = {L"HKEY_LOCAL_MACHINE", L"HKEY_USERS",
+                                   L"HKEY_CLASSES_ROOT", L"HKEY_CURRENT_CONFIG",
+                                   L"HKEY_CURRENT_USER", L"HKEY_DYN_DATA"
+                                  };
 
 /*******************************************************************************
  * Global Variables:
@@ -57,7 +62,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
     BOOL AclUiAvailable;
     HMENU hEditMenu;
-
+    INITCOMMONCONTROLSEX icce;
     WNDCLASSEXW wcFrame;
     WNDCLASSEXW wcChild;
     ATOM hFrameWndClass;
@@ -97,8 +102,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     hPopupMenus = LoadMenuW(hInstance, MAKEINTRESOURCEW(IDR_POPUP_MENUS));
 
     /* Initialize the Windows Common Controls DLL */
-    // TODO: Replace this call by InitCommonControlsEx(_something_)
-    InitCommonControls();
+    /* NOTE: Windows sets 0xFFFF to icce.dwICC but we use better value. */
+    icce.dwSize = sizeof(icce);
+    icce.dwICC = ICC_WIN95_CLASSES | ICC_STANDARD_CLASSES | ICC_USEREX_CLASSES;
+    InitCommonControlsEx(&icce);
 
     hEditMenu = GetSubMenu(hMenuFrame, 1);
 
@@ -184,11 +191,11 @@ BOOL TranslateChildTabMessage(PMSG msg)
 
     if (msg->wParam != VK_TAB) return FALSE;
     if (GetParent(msg->hwnd) != g_pChildWnd->hWnd) return FALSE;
-    PostMessageW(g_pChildWnd->hWnd, WM_COMMAND, ID_SWITCH_PANELS, 0);
+    PostMessageW(hFrameWnd, WM_COMMAND, ID_SWITCH_PANELS, 0);
     return TRUE;
 }
 
-int APIENTRY wWinMain(HINSTANCE hInstance,
+int WINAPI wWinMain(HINSTANCE hInstance,
                       HINSTANCE hPrevInstance,
                       LPWSTR    lpCmdLine,
                       int       nCmdShow)
@@ -199,11 +206,11 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(hPrevInstance);
 
     /* Initialize global strings */
-    LoadStringW(hInstance, IDS_APP_TITLE, szTitle, COUNT_OF(szTitle));
-    LoadStringW(hInstance, IDC_REGEDIT_FRAME, szFrameClass, COUNT_OF(szFrameClass));
-    LoadStringW(hInstance, IDC_REGEDIT, szChildClass, COUNT_OF(szChildClass));
+    LoadStringW(hInstance, IDS_APP_TITLE, szTitle, ARRAY_SIZE(szTitle));
+    LoadStringW(hInstance, IDC_REGEDIT_FRAME, szFrameClass, ARRAY_SIZE(szFrameClass));
+    LoadStringW(hInstance, IDC_REGEDIT, szChildClass, ARRAY_SIZE(szChildClass));
 
-    if (ProcessCmdLine(lpCmdLine))
+    if (ProcessCmdLine(GetCommandLineW()))
     {
         return 0;
     }

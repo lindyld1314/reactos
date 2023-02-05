@@ -32,7 +32,7 @@ BEGIN
     POPUP "&Fail"
     BEGIN
         MENUITEM "&Uus\tCtrl+N", CMD_NEW
-        MENUITEM "&New Window\tCtrl+Shift+N", CMD_NEW_WINDOW
+        MENUITEM "New &Window\tCtrl+Shift+N", CMD_NEW_WINDOW
         MENUITEM "&Ava...\tCtrl+O", CMD_OPEN
         MENUITEM "&Salvesta\tCtrl+S", CMD_SAVE
         MENUITEM "Salvesta &nimega...", CMD_SAVE_AS
@@ -152,13 +152,13 @@ BEGIN
     STRING_UNTITLED "Nimetu"
     STRING_ALL_FILES "Kõik failid (*.*)"
     STRING_TEXT_FILES_TXT "Tekstifailid (*.txt)"
-    STRING_TOOLARGE "Fail '%s' on liiga suur Notepad'i jaoks.\n \
+    STRING_TOOLARGE "Fail '%s' on liiga suur Notepad'i jaoks.\n\
 Palun kasuta erinevat redigeerijat."
     STRING_NOTEXT "Sa ei sisestanud midagi. \
 \nPalun kirjuta midagi ja proovi uuesti."
-    STRING_DOESNOTEXIST "Faili '%s'\nei ole olemas\n\n \
+    STRING_DOESNOTEXIST "Faili '%s'\nei ole olemas\n\n\
 Kas soovid uut faili koostada ?"
-    STRING_NOTSAVED "Faili '%s'\non redigeeritud\n\n \
+    STRING_NOTSAVED "Faili '%s'\non redigeeritud\n\n\
 Kas soovid muudatused salvestada ?"
     STRING_NOTFOUND "'%s' ei suudetud leida."
     STRING_OUT_OF_MEMORY "Pole piisavalt mälu selle \
@@ -168,11 +168,13 @@ käsu lõpetamiseks.\nSulge üks või enam rakendust, et suurendada\nvaba mälu 
     STRING_UNICODE "Unicode"
     STRING_UNICODE_BE "Unicode (big endian)"
     STRING_UTF8 "UTF-8"
+    STRING_UTF8_BOM "UTF-8 with BOM"
     STRING_CRLF "Windows (CR + LF)"
     STRING_LF "Unix (LF)"
     STRING_CR "Mac (CR)"
     STRING_LINE_COLUMN "Rida %d, veerg %d"
     STRING_PRINTERROR "Ei suuda printida faili '%s'.\n\nVeendu et printer on sisse lülitatud ja korralikult sättestatud."
+    STRING_DEFAULTFONT "Lucida Console"
 
     STRING_TEXT_DOCUMENT "Tekstidokument"
     STRING_NOTEPAD_AUTHORS "Autoriõigus 1997,98 Marcel Baur, 2000 Mike McCormack, 2002 Sylvain Petreolle, 2002 Andriy Palamarchuk\r\n"

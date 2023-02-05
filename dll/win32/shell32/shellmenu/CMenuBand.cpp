@@ -99,9 +99,9 @@ HRESULT STDMETHODCALLTYPE  CMenuBand::GetMenuInfo(
 
     if (ppsmc)
     {
-        if (m_psmc)
-            m_psmc->AddRef();
         *ppsmc = m_psmc;
+        if (*ppsmc)
+            (*ppsmc)->AddRef();
     }
 
     if (puId)
@@ -632,7 +632,7 @@ HRESULT STDMETHODCALLTYPE CMenuBand::SetClient(IUnknown *punkClient)
     CComPtr<IMenuPopup> child = m_subMenuChild;
 
     m_subMenuChild = NULL;
-        
+
     if (child)
     {
         IUnknown_SetSite(child, NULL);
@@ -655,8 +655,8 @@ HRESULT STDMETHODCALLTYPE CMenuBand::GetClient(IUnknown **ppunkClient)
 
     if (m_subMenuChild)
     {
-        m_subMenuChild->AddRef();
         *ppunkClient = m_subMenuChild;
+        (*ppunkClient)->AddRef();
     }
 
     return S_OK;
@@ -822,7 +822,7 @@ HRESULT CMenuBand::_TrackContextMenu(IContextMenu * contextMenu, INT x, INT y)
 {
     HRESULT hr;
     UINT uCommand;
-    
+
     // Ensure that the menu doesn't disappear on us
     CComPtr<IContextMenu> ctxMenu = contextMenu;
 
@@ -1075,7 +1075,7 @@ HRESULT CMenuBand::_OnPopupSubMenu(IShellMenu * childShellMenu, POINTL * pAt, RE
     if (FAILED_UNEXPECTEDLY(hr))
         return hr;
 
-    // 
+    //
     CComPtr<IMenuPopup> popup;
     hr = pDeskBar->QueryInterface(IID_PPV_ARG(IMenuPopup, &popup));
     if (FAILED_UNEXPECTEDLY(hr))

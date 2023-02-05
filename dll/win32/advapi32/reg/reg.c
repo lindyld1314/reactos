@@ -961,7 +961,7 @@ CreateNestedKey(PHKEY KeyHandle,
         }
 
         *Ptr = (WCHAR)0;
-        LocalKeyName.Length = wcslen(LocalKeyName.Buffer) * sizeof(WCHAR);
+        LocalKeyName.Length = (USHORT)wcslen(LocalKeyName.Buffer) * sizeof(WCHAR);
 
         Status = NtCreateKey(&LocalKeyHandle,
                              KEY_CREATE_SUB_KEY,
@@ -3264,12 +3264,7 @@ RegOpenKeyA(HKEY hKey,
     if (!phkResult)
         return ERROR_INVALID_PARAMETER;
 
-    if (!hKey && lpSubKey && phkResult)
-    {
-        return ERROR_INVALID_HANDLE;
-    }
-
-    if (!lpSubKey || !*lpSubKey)
+    if (!hKey && !lpSubKey)
     {
         *phkResult = hKey;
         return ERROR_SUCCESS;
@@ -3303,12 +3298,7 @@ RegOpenKeyW(HKEY hKey,
     if (!phkResult)
         return ERROR_INVALID_PARAMETER;
 
-    if (!hKey && lpSubKey && phkResult)
-    {
-        return ERROR_INVALID_HANDLE;
-    }
-
-    if (!lpSubKey || !*lpSubKey)
+    if (!hKey && !lpSubKey)
     {
         *phkResult = hKey;
         return ERROR_SUCCESS;
@@ -3383,6 +3373,17 @@ RegOpenKeyExW(HKEY hKey,
         return ERROR_INVALID_PARAMETER;
     }
 
+    if (!hKey && lpSubKey && phkResult)
+    {
+        return ERROR_INVALID_HANDLE;
+    }
+
+    if (IsPredefKey(hKey) && (!lpSubKey || !*lpSubKey))
+    {
+        *phkResult = hKey;
+        return ERROR_SUCCESS;
+    }
+
     Status = MapDefaultKey(&KeyHandle, hKey);
     if (!NT_SUCCESS(Status))
     {
@@ -3399,7 +3400,10 @@ RegOpenKeyExW(HKEY hKey,
     if (ulOptions & REG_OPTION_OPEN_LINK)
         Attributes |= OBJ_OPENLINK;
 
-    RtlInitUnicodeString(&SubKeyString, lpSubKey ? lpSubKey : L"");
+    if (lpSubKey == NULL || wcscmp(lpSubKey, L"\\") == 0)
+        RtlInitUnicodeString(&SubKeyString, L"");
+    else
+        RtlInitUnicodeString(&SubKeyString, lpSubKey);
 
     InitializeObjectAttributes(&ObjectAttributes,
                                &SubKeyString,
@@ -4084,6 +4088,7 @@ RegQueryValueExA(
     /* We don't need this anymore */
     RtlFreeUnicodeString(&nameW);
 
+    /* Get the length for the multi-byte string (without the terminating NULL!) */
     DataLength = *count;
     RtlUnicodeToMultiByteSize(count, Buffer, BufferSize);
 
@@ -4097,7 +4102,7 @@ RegQueryValueExA(
     RtlUnicodeToMultiByteN(DataStr, DataLength, NULL, Buffer, BufferSize);
 
     /* NULL-terminate if there is enough room */
-    if ((DataLength > *count) && (DataStr[*count - 1] != '\0'))
+    if (DataLength > *count)
         DataStr[*count] = '\0';
 
     RtlFreeHeap(RtlGetProcessHeap(), 0, Buffer);

@@ -97,7 +97,7 @@ STYLE DS_SHELLFONT | DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYS
 CAPTION "Menú Inicio"
 FONT 8, "MS Shell Dlg", 0, 0, 0x1
 BEGIN
-CONTROL "", IDC_TASKBARPROP_STARTMENU_BITMAP, "Static", SS_BITMAP | SS_SUNKEN,7, 7, 183, 108
+    CONTROL "", IDC_TASKBARPROP_STARTMENU_BITMAP, "Static", SS_BITMAP | SS_SUNKEN,7, 7, 183, 108
     AUTORADIOBUTTON "&Menú inicio", IDC_TASKBARPROP_STARTMENU, 7,135,105,10
     LTEXT "Este estilo de menú proporciona un rápido acceso a las carpetas, programas favoritos, y búsquedas.", IDC_TASKBARPROP_STARTMENUMODERNTEXT, 20,145,150,24
     PUSHBUTTON "&Personalizar...", IDC_TASKBARPROP_STARTMENUCUST, 192,132,53,14
@@ -130,7 +130,7 @@ BEGIN
     ICON             IDI_STARTMENU2, IDC_STATIC, 19, 17, 20, 20
     LTEXT            "Usted puede personalizar el Menú Inicio añadiendo o quitando elementos.", IDC_STATIC, 48, 17, 108, 39
     PUSHBUTTON       "&Añadir...", IDC_CLASSICSTART_ADD, 162, 18, 53, 14
-    PUSHBUTTON       "&Remover...", IDC_CLASSICSTART_REMOVE, 162, 33, 53, 14
+    PUSHBUTTON       "&Quitar...", IDC_CLASSICSTART_REMOVE, 162, 33, 53, 14
     PUSHBUTTON       "A&vanzado", IDC_CLASSICSTART_ADVANCED, 162, 49, 53, 14
     PUSHBUTTON       "&Ordenar", IDC_CLASSICSTART_SORT, 162, 65, 53, 14
     ICON             IDI_RECYCLEBIN, IDC_STATIC, 20, 85, 20, 20
@@ -207,4 +207,6 @@ STRINGTABLE
 BEGIN
     IDS_TASKBAR_STARTMENU_PROP_CAPTION "Propiedades de la Barra de tareas y del Menú Inicio"
     IDS_RESTORE_ALL "&Mostrar ventanas abiertas"
+    IDS_TRAYWND_UNDO_CASCADE "&Undo Cascade"
+    IDS_TRAYWND_UNDO_TILE "&Undo Tile"
 END

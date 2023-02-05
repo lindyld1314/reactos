@@ -379,6 +379,7 @@ BOOL FASTCALL can_activate_window( PWND Wnd OPTIONAL)
     if (!(style & WS_VISIBLE)) return FALSE;
     if (style & WS_MINIMIZE) return FALSE;
     if ((style & (WS_POPUP|WS_CHILD)) == WS_CHILD) return FALSE;
+    if (Wnd->ExStyle & WS_EX_NOACTIVATE) return FALSE;
     return TRUE;
     /* FIXME: This window could be disable because the child that closed
               was a popup. */
@@ -435,12 +436,12 @@ co_WinPosActivateOtherWindow(PWND Wnd)
 
    // Find any window to bring to top. Works Okay for wine since it does not see X11 windows.
    WndTo = UserGetDesktopWindow();
-   WndTo = WndTo->spwndChild;
-   if ( WndTo == NULL )
+   if ((WndTo == NULL) || (WndTo->spwndChild == NULL))
    {
       //ERR("WinPosActivateOtherWindow No window!\n");
       return;
    }
+   WndTo = WndTo->spwndChild;
    for (;;)
    {
       if (WndTo == Wnd)
@@ -551,6 +552,7 @@ WinPosInitInternalPos(PWND Wnd, RECTL *RestoreRect)
    }
 }
 
+// Win: _GetWindowPlacement
 BOOL
 FASTCALL
 IntGetWindowPlacement(PWND Wnd, WINDOWPLACEMENT *lpwndpl)
@@ -1392,8 +1394,34 @@ WinPosDoOwnedPopups(PWND Window, HWND hWndInsertAfter)
 
                if (List[i] == Owner)
                {
-                  if (i > 0) hWndInsertAfter = List[i-1];
-                  else hWndInsertAfter = topmost ? HWND_TOPMOST : HWND_TOP;
+                  /* We found its Owner, so we must handle it here. */
+                  if (i > 0)
+                  {
+                     if (List[i - 1] != UserHMGetHandle(Window))
+                     {
+                        /*
+                         * If the popup to be inserted is not already just
+                         * before the Owner, insert it there. The modified
+                         * hWndInsertAfter will be handled below.
+                         *
+                         * (NOTE: Do not allow hWndInsertAfter to become equal
+                         * to the popup's window handle, as this would cause
+                         * the popup to link to itself).
+                         */
+                        hWndInsertAfter = List[i - 1];
+                     }
+                     else
+                     {
+                        /* If the popup to be inserted is already
+                         * before the Owner, we are done. */
+                        ExFreePoolWithTag(List, USERTAG_WINDOWLIST);
+                        return hWndInsertAfter;
+                     }
+                  }
+                  else
+                  {
+                     hWndInsertAfter = topmost ? HWND_TOPMOST : HWND_TOP;
+                  }
                   break;
                }
 
@@ -1746,8 +1774,8 @@ co_WinPosSetWindowPos(
 
    ASSERT_REFS_CO(Window);
 
-   TRACE("pwnd %p, after %p, %d,%d (%dx%d), flags 0x%x",
-          Window, WndInsertAfter, x, y, cx, cy, flags);
+   TRACE("pwnd %p, after %p, %d,%d (%dx%d), flags 0x%x\n",
+         Window, WndInsertAfter, x, y, cx, cy, flags);
 #if DBG
    dump_winpos_flags(flags);
 #endif
@@ -1904,18 +1932,34 @@ co_WinPosSetWindowPos(
    }
    else if (WinPos.flags & SWP_SHOWWINDOW)
    {
-      if ((Window->ExStyle & WS_EX_APPWINDOW) ||
+      if (Window->style & WS_CHILD)
+      {
+         if ((Window->style & WS_POPUP) && (Window->ExStyle & WS_EX_APPWINDOW))
+         {
+            co_IntShellHookNotify(HSHELL_WINDOWCREATED, (WPARAM)Window->head.h, 0);
+            if (!(WinPos.flags & SWP_NOACTIVATE))
+               UpdateShellHook(Window);
+         }
+      }
+      else if ((Window->ExStyle & WS_EX_APPWINDOW) ||
           (!(Window->ExStyle & WS_EX_TOOLWINDOW) && !Window->spwndOwner &&
            (!Window->spwndParent || UserIsDesktopWindow(Window->spwndParent))))
       {
-         co_IntShellHookNotify(HSHELL_WINDOWCREATED, (WPARAM)Window->head.h, 0);
-         if (!(WinPos.flags & SWP_NOACTIVATE))
-            UpdateShellHook(Window);
+         if (!UserIsDesktopWindow(Window))
+         {
+            co_IntShellHookNotify(HSHELL_WINDOWCREATED, (WPARAM)Window->head.h, 0);
+            if (!(WinPos.flags & SWP_NOACTIVATE))
+               UpdateShellHook(Window);
+         }
       }
 
       Window->style |= WS_VISIBLE; //IntSetStyle( Window, WS_VISIBLE, 0 );
       Window->head.pti->cVisWindows++;
       IntNotifyWinEvent(EVENT_OBJECT_SHOW, Window, OBJID_WINDOW, CHILDID_SELF, WEF_SETBYWNDPTI);
+   }
+   else
+   {
+      IntCheckFullscreen(Window);
    }
 
    if (Window->hrgnUpdate != NULL && Window->hrgnUpdate != HRGN_WINDOW)
@@ -2056,7 +2100,8 @@ co_WinPosSetWindowPos(
       }
 
       /* We need to redraw what wasn't visible before or force a redraw */
-      if (VisAfter != NULL)
+      if ((WinPos.flags & (SWP_FRAMECHANGED | SWP_SHOWWINDOW)) ||
+          (((WinPos.flags & SWP_AGG_NOGEOMETRYCHANGE) != SWP_AGG_NOGEOMETRYCHANGE) && VisAfter != NULL))
       {
          PREGION DirtyRgn = IntSysCreateRectpRgn(0, 0, 0, 0);
          if (DirtyRgn)
@@ -2090,10 +2135,7 @@ co_WinPosSetWindowPos(
                    IntInvalidateWindows( Parent, DirtyRgn, RDW_ERASE | RDW_INVALIDATE);
                    co_IntPaintWindows(Parent, RDW_NOCHILDREN, FALSE);
                 }
-                else
-                {
-                   IntInvalidateWindows( Window, DirtyRgn, RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN);
-                }
+                IntInvalidateWindows(Window, DirtyRgn, RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN);
              }
              else if ( RgnType != ERROR && RgnType == NULLREGION ) // Must be the same. See CORE-7166 & CORE-15934, NC HACK fix.
              {
@@ -2474,6 +2516,7 @@ co_WinPosMinMaximize(PWND Wnd, UINT ShowFlag, RECT* NewPos)
 
 /*
    ShowWindow does not set SWP_FRAMECHANGED!!! Fix wine msg test_SetParent:WmSetParentSeq_2:23 wParam bits!
+   Win: xxxShowWindow
  */
 BOOLEAN FASTCALL
 co_WinPosShowWindow(PWND Wnd, INT Cmd)
@@ -2551,9 +2594,8 @@ co_WinPosShowWindow(PWND Wnd, INT Cmd)
          Swp |= SWP_NOACTIVATE | SWP_NOZORDER;
          /* Fall through. */
       case SW_SHOWMINIMIZED:
+      case SW_MINIMIZE: /* CORE-15669: SW_MINIMIZE also shows */
          Swp |= SWP_SHOWWINDOW;
-         /* Fall through. */
-      case SW_MINIMIZE:
          {
             Swp |= SWP_NOACTIVATE;
             if (!(style & WS_MINIMIZE))
@@ -2648,7 +2690,7 @@ co_WinPosShowWindow(PWND Wnd, INT Cmd)
 
       default:
          //ERR("co_WinPosShowWindow Exit Good 4\n");
-         return WasVisible;
+         return FALSE;
    }
 
    ShowFlag = (Cmd != SW_HIDE);
@@ -3152,12 +3194,12 @@ NtUserChildWindowFromPointEx(HWND hwndParent,
  */
 BOOL APIENTRY
 NtUserEndDeferWindowPosEx(HDWP WinPosInfo,
-                          DWORD Unknown1)
+                          BOOL bAsync)
 {
    BOOL Ret;
    TRACE("Enter NtUserEndDeferWindowPosEx\n");
    UserEnterExclusive();
-   Ret = IntEndDeferWindowPosEx(WinPosInfo, (BOOL)Unknown1);
+   Ret = IntEndDeferWindowPosEx(WinPosInfo, bAsync);
    TRACE("Leave NtUserEndDeferWindowPosEx, ret=%i\n", Ret);
    UserLeave();
    return Ret;

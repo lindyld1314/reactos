@@ -4,6 +4,7 @@ extern ATOM AtomMessage;
 extern ATOM AtomWndObj; /* WNDOBJ list */
 extern ATOM AtomLayer;
 extern ATOM AtomFlashWndState;
+extern BOOL g_bWindowSnapEnabled;
 
 #define HAS_DLGFRAME(Style, ExStyle) \
             (((ExStyle) & WS_EX_DLGMODALFRAME) || \
@@ -78,5 +79,69 @@ LONG FASTCALL co_UserSetWindowLong(HWND,DWORD,LONG,BOOL);
 LONG_PTR FASTCALL co_UserSetWindowLongPtr(HWND, DWORD, LONG_PTR, BOOL);
 HWND FASTCALL IntGetWindow(HWND,UINT);
 LRESULT co_UserFreeWindow(PWND,PPROCESSINFO,PTHREADINFO,BOOLEAN);
+
+#define HWND_TERMINATOR ((HWND)(ULONG_PTR)1)
+
+typedef struct tagWINDOWLIST
+{
+    struct tagWINDOWLIST *pNextList;
+    HWND *phwndLast;
+    HWND *phwndEnd;
+    PTHREADINFO pti;
+    HWND ahwnd[ANYSIZE_ARRAY]; /* Terminated by HWND_TERMINATOR */
+} WINDOWLIST, *PWINDOWLIST;
+
+extern PWINDOWLIST gpwlList;
+extern PWINDOWLIST gpwlCache;
+
+#define WL_IS_BAD(pwl)   ((pwl)->phwndEnd <= (pwl)->phwndLast)
+#define WL_CAPACITY(pwl) ((pwl)->phwndEnd - &((pwl)->ahwnd[0]))
+
+PWINDOWLIST FASTCALL IntBuildHwndList(PWND pwnd, DWORD dwFlags, PTHREADINFO pti);
+VOID FASTCALL IntFreeHwndList(PWINDOWLIST pwlTarget);
+HWND FASTCALL IntFindWindow(PWND Parent, PWND ChildAfter, RTL_ATOM ClassAtom,
+                            PUNICODE_STRING WindowName);
+
+/* Undocumented dwFlags for IntBuildHwndList */
+#define IACE_LIST  0x0002
+
+#define IS_WND_CHILD(pWnd) ((pWnd)->style & WS_CHILD)
+#define IS_WND_MENU(pWnd) ((pWnd)->pcls->atomClassName == gpsi->atomSysClass[ICLS_MENU])
+
+// The IME-like windows are the IME windows and the IME UI windows.
+// The IME window's class name is "IME".
+// The IME UI window behaves the User Interface of IME for the user.
+#define IS_WND_IMELIKE(pWnd) \
+    (((pWnd)->pcls->style & CS_IME) || \
+     ((pWnd)->pcls->atomClassName == gpsi->atomSysClass[ICLS_IME]))
+
+extern BOOL gfIMEShowStatus;
+
+BOOL FASTCALL IntWantImeWindow(PWND pwndTarget);
+PWND FASTCALL co_IntCreateDefaultImeWindow(PWND pwndTarget, HINSTANCE hInst);
+BOOL FASTCALL IntImeCanDestroyDefIMEforChild(PWND pImeWnd, PWND pwndTarget);
+BOOL FASTCALL IntImeCanDestroyDefIME(PWND pImeWnd, PWND pwndTarget);
+BOOL FASTCALL IntBroadcastImeShowStatusChange(PWND pImeWnd, BOOL bShow);
+VOID FASTCALL IntNotifyImeShowStatus(PWND pImeWnd);
+VOID FASTCALL IntCheckImeShowStatusInThread(PWND pImeWnd);
+
+static inline
+VOID
+WndSetOwner(_Inout_ PWND pwnd, _In_opt_ PWND pwndOwner)
+{
+    /* First reference the new owner window */
+    if (pwndOwner != NULL)
+    {
+        UserReferenceObject(pwndOwner);
+    }
+
+    /* Now dereference the previous owner window */
+    if (pwnd->spwndOwner != NULL)
+    {
+        UserDereferenceObject(pwnd->spwndOwner);
+    }
+
+    pwnd->spwndOwner = pwndOwner;
+}
 
 /* EOF */
