@@ -58,9 +58,7 @@ BOOL fInEndMenu = FALSE;
 #define MII_STATE_MASK (MFS_GRAYED|MFS_CHECKED|MFS_HILITE|MFS_DEFAULT)
 
 #define IS_SYSTEM_MENU(MenuInfo)  \
-	(!((MenuInfo)->fFlags & MNF_POPUP) && ((MenuInfo)->fFlags & MNF_SYSMENU))
-
-#define IS_BITMAP_ITEM(flags) (MF_BITMAP == MENU_ITEM_TYPE(flags))
+	(!!((MenuInfo)->fFlags & MNF_SYSMENU))
 
 #define IS_MAGIC_BITMAP(id) ((id) && ((INT_PTR)(id) < 12) && ((INT_PTR)(id) >= -1))
 #define IS_STRING_ITEM(flags) (MF_STRING == MENU_ITEM_TYPE(flags))
@@ -1368,7 +1366,7 @@ void FASTCALL MENU_InitSysMenuPopup(PMENU menu, DWORD style, DWORD clsStyle, LON
 
     gray = !(style & WS_THICKFRAME) || (style & (WS_MAXIMIZE | WS_MINIMIZE));
     IntEnableMenuItem( menu, SC_SIZE, (gray ? MF_GRAYED : MF_ENABLED) );
-    gray = ((style & WS_MAXIMIZE) != 0);
+    gray = ((style & (WS_MAXIMIZE | WS_MINIMIZE)) != 0);
     IntEnableMenuItem( menu, SC_MOVE, (gray ? MF_GRAYED : MF_ENABLED) );
     gray = !(style & WS_MINIMIZEBOX) || (style & WS_MINIMIZE);
     IntEnableMenuItem( menu, SC_MINIMIZE, (gray ? MF_GRAYED : MF_ENABLED) );
@@ -3294,7 +3292,7 @@ static void FASTCALL MENU_HideSubPopups(PWND pWndOwner, PMENU Menu,
           if (!(wFlags & TPM_NONOTIFY))
           {
              co_IntSendMessage( UserHMGetHandle(pWndOwner), WM_UNINITMENUPOPUP, (WPARAM)UserHMGetHandle(Item->spSubMenu),
-                                 MAKELPARAM(0, IS_SYSTEM_MENU(Item->spSubMenu)) );
+                                 MAKELPARAM(0, IS_SYSTEM_MENU(Item->spSubMenu) ? MF_SYSMENU : 0));
           }
           ////
           // Call WM_UNINITMENUPOPUP FIRST before destroy!!
@@ -3557,7 +3555,9 @@ static BOOL FASTCALL MENU_ButtonDown(MTRACKER* pmt, PMENU PtMenu, UINT Flags)
   {
       UINT id = 0;
       PITEM item;
-      if (IS_SYSTEM_MENU(PtMenu))
+      
+      // Special check for the icon system menu
+      if (IS_SYSTEM_MENU(PtMenu) && !(PtMenu->fFlags & MNF_POPUP))
       {
          item = PtMenu->rgItems;
       }
@@ -3601,7 +3601,8 @@ static INT FASTCALL MENU_ButtonUp(MTRACKER *pmt, PMENU PtMenu, UINT Flags)
       UINT Id = 0;
       ITEM *item;
       
-      if ( IS_SYSTEM_MENU(PtMenu) )
+      // Special check for the icon system menu
+      if (IS_SYSTEM_MENU(PtMenu) && !(PtMenu->fFlags & MNF_POPUP))
       {
           item = PtMenu->rgItems;
       }
@@ -3685,20 +3686,7 @@ static BOOL FASTCALL MENU_MouseMove(MTRACKER *pmt, PMENU PtMenu, UINT Flags)
   UINT Index = NO_SELECTED_ITEM;
 
   if ( PtMenu )
-  {
-      if (IS_SYSTEM_MENU(PtMenu))
-      {
-          Index = 0;
-          //// ReactOS only HACK: CORE-2338
-          // Windows tracks mouse moves to the system menu but does not open it.
-          // Only keyboard tracking can do that.
-          //
-          TRACE("SystemMenu\n");
-          return TRUE; // Stay inside the Loop!
-      }
-      else
-          MENU_FindItemByCoords( PtMenu, pmt->Pt, &Index );
-  }
+      MENU_FindItemByCoords( PtMenu, pmt->Pt, &Index );
 
   if (Index == NO_SELECTED_ITEM)
   {
@@ -4364,7 +4352,7 @@ static INT FASTCALL MENU_TrackMenu(PMENU pmenu, UINT wFlags, INT x, INT y,
               if (!(wFlags & TPM_NONOTIFY))
               {
                  co_IntSendMessage( UserHMGetHandle(mt.OwnerWnd), WM_UNINITMENUPOPUP, (WPARAM)UserHMGetHandle(mt.TopMenu),
-                                 MAKELPARAM(0, IS_SYSTEM_MENU(mt.TopMenu)) );
+                                 MAKELPARAM(0, IS_SYSTEM_MENU(mt.TopMenu) ? MF_SYSMENU : 0));
               }
             }
             MENU_SelectItem( mt.OwnerWnd, mt.TopMenu, NO_SELECTED_ITEM, FALSE, 0 );
@@ -4587,7 +4575,7 @@ BOOL WINAPI IntTrackPopupMenuEx( PMENU menu, UINT wFlags, int x, int y,
        /* Send WM_INITMENUPOPUP message only if TPM_NONOTIFY flag is not specified */
        if (!(wFlags & TPM_NONOTIFY))
        {
-          co_IntSendMessage( UserHMGetHandle(pWnd), WM_INITMENUPOPUP, (WPARAM) UserHMGetHandle(menu), 0);
+          co_IntSendMessage( UserHMGetHandle(pWnd), WM_INITMENUPOPUP, (WPARAM) UserHMGetHandle(menu), MAKELPARAM(0, IS_SYSTEM_MENU(menu)));
        }
 
        if (menu->fFlags & MNF_SYSMENU)
@@ -4617,7 +4605,7 @@ BOOL WINAPI IntTrackPopupMenuEx( PMENU menu, UINT wFlags, int x, int y,
           if (!(wFlags & TPM_NONOTIFY))
           {
              co_IntSendMessage( UserHMGetHandle(pWnd), WM_UNINITMENUPOPUP, (WPARAM)UserHMGetHandle(menu),
-                                            MAKELPARAM(0, IS_SYSTEM_MENU(menu)) );
+                                            MAKELPARAM(0, IS_SYSTEM_MENU(menu) ? MF_SYSMENU : 0));
           }
        }
     }

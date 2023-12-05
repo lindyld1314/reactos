@@ -418,8 +418,11 @@ VOID Ki386InitializeLdt(VOID);
 VOID Ki386SetProcessorFeatures(VOID);
 VOID KiGetCacheInformation(VOID);
 VOID KiSetProcessorType(VOID);
-ULONG KiGetFeatureBits(VOID);
+ULONG64 KiGetFeatureBits(VOID);
 VOID KiInitializeCpuFeatures(VOID);
+#if DBG
+VOID KiReportCpuFeatures(IN PKPRCB Prcb);
+#endif
 
 ULONG KeAllocateGdtSelector(ULONG Desc[2]);
 VOID KeFreeGdtSelector(ULONG Entry);
@@ -472,6 +475,13 @@ KiSetTrapContext(
     _Out_ PKTRAP_FRAME TrapFrame,
     _In_ PCONTEXT Context,
     _In_ KPROCESSOR_MODE RequestorMode);
+
+VOID
+NTAPI
+KiInitializePcr(IN PKIPCR Pcr,
+                IN ULONG ProcessorNumber,
+                IN PKTHREAD IdleThread,
+                IN PVOID DpcStack);
 
 #ifdef __cplusplus
 } // extern "C"

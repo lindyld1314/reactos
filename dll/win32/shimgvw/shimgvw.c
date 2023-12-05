@@ -435,8 +435,9 @@ static void pSaveImageAs(HWND hwnd)
     sfn.hInstance   = hInstance;
     sfn.lpstrFile   = szSaveFileName;
     sfn.lpstrFilter = szFilterMask;
-    sfn.nMaxFile    = MAX_PATH;
+    sfn.nMaxFile    = _countof(szSaveFileName);
     sfn.Flags       = OFN_EXPLORER | OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
+    sfn.lpstrDefExt = L"png";
 
     c = szFilterMask;
 
@@ -524,9 +525,10 @@ pLoadImageFromNode(SHIMGVW_FILENODE *node, HWND hwnd)
     pLoadImage(node->FileName);
 
     LoadStringW(hInstance, IDS_APPTITLE, szResStr, _countof(szResStr));
-    if (image != NULL)
+
+    pchFileTitle = PathFindFileNameW(node->FileName);
+    if (pchFileTitle && *pchFileTitle) 
     {
-        pchFileTitle = PathFindFileNameW(node->FileName);
         StringCbPrintfW(szTitleBuf, sizeof(szTitleBuf),
                         L"%ls%ls%ls", szResStr, L" - ", pchFileTitle);
         SetWindowTextW(hwnd, szTitleBuf);
@@ -537,6 +539,9 @@ pLoadImageFromNode(SHIMGVW_FILENODE *node, HWND hwnd)
     }
 
     EnableToolBarButtons(image != NULL);
+
+    /* Redraw the display window */
+    InvalidateRect(hwnd, NULL, FALSE);
 }
 
 static SHIMGVW_FILENODE*
